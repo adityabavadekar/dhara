@@ -1,0 +1,59 @@
+[project]
+name = "dhara"
+version = "0.1.0"
+description = "Flood/debris damage and isolation mapping from Sentinel-1/2, Copernicus DEM and pre-event OSM (educational prototype)"
+authors = [
+    { name = "Aditya Bavadekar", email = "bvkraditya@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb>=1.5.6",
+    "fastapi>=0.143.0",
+    "geopandas==1.2.0",
+    "httpx==0.28.1",
+    "jinja2>=3.1.6",
+    "numba>=0.68.0",
+    "numpy==2.5.3",
+    "onnxruntime>=1.31.0",
+    "pyarrow==26.0.0",
+    "pydantic==2.14.0",
+    "pydantic-settings==2.15.0",
+    "pyproj==3.8.0",
+    "pyyaml==6.0.3",
+    "rasterio==1.5.2",
+    "scikit-image==0.26.0",
+    "scipy>=1.18.1",
+    "shapely==2.2.0",
+    "typer==0.27.3",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.15,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest==9.1.1",
+    "ruff==0.17.0",
+    "ty==0.0.86",
+]
+
+[project.scripts]
+dhara = "dhara.cli:app"
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["project-clones"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501"]  # formatter owns line length; long docstrings allowed
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["live: hits real CDSE/ohsome endpoints (needs .env)"]
+
+[tool.ty.src]
+exclude = ["project-clones", "training"]

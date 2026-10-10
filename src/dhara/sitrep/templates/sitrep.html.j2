@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8">
+<title>{{ L.title }} · {{ F.event }}</title>
+<style>
+  @page { size: A4; margin: 11mm 12mm; }
+  :root { --ink:#0f172a; --muted:#475569; --line:#e2e8f0; --flood:#1d4ed8; --debris:#c27803; --cut:#b91c1c; --bg:#ffffff; }
+  * { box-sizing: border-box; }
+  body { font: 9.2pt/1.38 "Inter", "Noto Sans", "Noto Sans Devanagari", system-ui, sans-serif; color: var(--ink); background: var(--bg); margin: 0; }
+  .page { max-width: 186mm; margin: 0 auto; }
+  header { display:flex; justify-content:space-between; align-items:flex-end; border-bottom: 2px solid var(--ink); padding-bottom: 4px; margin-bottom: 7px; }
+  h1 { font-size: 15pt; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 8.4pt; }
+  .badge { font-size: 7.6pt; border: 1px solid var(--ink); padding: 1px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: .04em; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 6px 0 8px; }
+  .kpi { border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; }
+  .kpi .v { font-size: 14pt; font-weight: 650; line-height: 1.1; }
+  .kpi .l { color: var(--muted); font-size: 7.8pt; }
+  .kpi.cut .v { color: var(--cut); } .kpi.deb .v { color: var(--debris); } .kpi.fl .v { color: var(--flood); }
+  h2 { font-size: 9.6pt; margin: 6px 0 3px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 8.2pt; }
+  th, td { text-align: left; padding: 2px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .map img { width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+  .legend { font-size: 7.6pt; color: var(--muted); display:flex; gap: 9px; flex-wrap: wrap; margin-top: 2px; }
+  .sw { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:3px; vertical-align:-1px; }
+  ul { margin: 2px 0 0 14px; padding: 0; } li { margin: 1px 0; }
+  .box { border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; }
+  .warn { border-color: #cbd5e1; background: #f8fafc; }
+  footer { margin-top: 7px; border-top: 1px solid var(--line); padding-top: 4px; font-size: 6.9pt; color: var(--muted); }
+</style>
+</head>
+<body><div class="page">
+<header>
+  <div>
+    <h1>{{ L.title }}</h1>
+    <div class="sub">{{ L.event }} {{ F.event }} · {{ L.area }} {{ F.aoi_area_km2 }} km² · {{ L.generated }} {{ F.generated_utc }} · {{ L.job }} {{ F.job_id }}</div>
+  </div>
+  <span class="badge">{{ L.prototype }}</span>
+</header>
+
+<div class="kpis">
+  <div class="kpi cut"><div class="v">{{ F.settlements_cut_off }}</div><div class="l">{{ L.k_cut }}</div></div>
+  <div class="kpi"><div class="v">{{ F.bridges_lost }}</div><div class="l">{{ L.k_bridges }} ({{ F.bridges_total }} {{ L.mapped }})</div></div>
+  <div class="kpi deb"><div class="v">{{ F.buildings_hit }}</div><div class="l">{{ L.k_buildings }} ({{ F.buildings_total }} {{ L.mapped }})</div></div>
+  <div class="kpi fl"><div class="v">{{ F.network_failed_km }} km</div><div class="l">{{ L.k_roads }}</div></div>
+</div>
+
+<div class="grid">
+  <div class="map">
+    <img src="data:image/png;base64,{{ map_png }}" alt="map">
+    <div class="legend">
+      <span><span class="sw" style="background:#c27803"></span>{{ L.debris }}</span>
+      <span><span class="sw" style="background:#1d4ed8"></span>{{ L.flood }}</span>
+      <span><span class="sw" style="background:#7dd3fc"></span>{{ L.water }}</span>
+      <span><span class="sw" style="background:#78716c"></span>{{ L.unobs }}</span>
+      <span><span class="sw" style="background:#b91c1c"></span>{{ L.cut_pts }}</span>
+    </div>
+  </div>
+  <div>
+    <h2>{{ L.where }}</h2>
+    <ul>
+      <li>{{ L.debris_area }}: <b>{{ F.area_debris_km2 }} km²</b>; {{ L.flood_area }}: <b>{{ F.area_flood_km2 }} km²</b>.</li>
+      <li>{{ L.tiers }}: {{ L.high }} {{ F.area_tier_high_km2 }} km², {{ L.moderate }} {{ F.area_tier_moderate_km2 }} km², {{ L.low }} {{ F.area_tier_low_km2 }} km².</li>
+      <li>{{ L.unobs_area }}: <b>{{ F.area_not_observable_km2 }} km²</b> ({{ L.observable }} {{ F.observable_pct }}%). {{ L.unobs_note }}</li>
+    </ul>
+    <h2>{{ L.what }}</h2>
+    <ul>
+      <li>{{ L.bld_tiers }}: {{ L.high }} {{ F.buildings_hit_high }}, {{ L.moderate }} {{ F.buildings_hit_moderate }}, {{ L.low }} {{ F.buildings_hit_low }}; {{ L.bld_unobs }} {{ F.buildings_unobserved }}.</li>
+      <li>{{ L.roads_hit }}: {{ F.road_ways_hit }}. {{ L.net }}: {{ F.network_km }} km, {{ L.net_failed }} {{ F.network_failed_km }} km, {{ L.net_unobs }} {{ F.network_unobserved_pct }}%.</li>
+      <li>{{ L.bridges }}: {{ F.bridges_lost }} {{ L.of }} {{ F.bridges_total }} ({{ L.high }} {{ F.bridges_lost_high }}); {{ L.at_risk }}: {{ F.bridges_at_risk }}.</li>
+    </ul>
+    <h2>{{ L.who }}</h2>
+    <ul>
+      <li>{{ L.cut }}: <b>{{ F.settlements_cut_off }}</b>; {{ L.hosp_cut }}: {{ F.settlements_hospital_cut_off }}; {{ L.detour }}: {{ F.settlements_detour }}; {{ L.connected }}: {{ F.settlements_connected }} ({{ L.of }} {{ F.settlements_total }}).</li>
+      <li>{{ L.exposure_a }} {{ F.exposure_radius_m }} m {{ L.exposure_b }}: <b>{{ F.buildings_in_cut_off }}</b>.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="grid" style="margin-top:6px">
+  <div>
+    <h2>{{ L.t_cut }}</h2>
+    {% if T.cut_off %}
+    <table><tr><th>{{ L.c_name }}</th><th>{{ L.c_status }}</th><th class="n">{{ L.c_bld }}</th><th class="n">{{ L.c_p }}</th><th class="n">{{ L.c_km }}</th></tr>
+    {% for r in T.cut_off %}<tr><td>{{ r.name }} <span class="sub">{{ r.place }}</span></td><td>{{ r.status }}</td><td class="n">{{ r.buildings }}</td><td class="n">{{ r.p_cut }}</td><td class="n">{{ r.km_pre }}</td></tr>{% endfor %}
+    </table>
+    {% else %}<p class="sub">{{ L.none_cut }}</p>{% endif %}
+  </div>
+  <div>
+    <h2>{{ L.t_repair }}</h2>
+    {% if T.repairs %}
+    <table><tr><th class="n">#</th><th>{{ L.r_what }}</th><th class="n">{{ L.r_set }}</th><th class="n">{{ L.c_bld }}</th></tr>
+    {% for r in T.repairs %}<tr><td class="n">{{ r.rank }}</td><td>{{ r.what }} <span class="sub">{{ r.highway }} · {{ r.osm_id }}</span></td><td class="n">{{ r.settlements }}</td><td class="n">{{ r.buildings }}</td></tr>{% endfor %}
+    </table>
+    {% else %}<p class="sub">{{ L.none_repair }}</p>{% endif %}
+    {% if T.bridge_repairs %}<p class="sub" style="margin:3px 0 0">{{ L.bridge_first }}: {% for r in T.bridge_repairs %}{{ r.what }} ({{ r.osm_id }}) → {{ r.settlements }} / {{ r.buildings }}{% if not loop.last %}; {% endif %}{% endfor %}</p>{% endif %}
+    <h2>{{ L.limits }}</h2>
+    <div class="box warn">{{ L.limits_text }}</div>
+  </div>
+</div>
+
+<footer>
+  <b>{{ L.data }}:</b>
+  {% for s in T.s1 %}{{ F.sensor_s1 }} {{ s.track }} {{ s.pre }} → {{ s.post }}; {% endfor %}
+  {{ F.sensor_s2 }} {{ F.s2_pair }}; {{ L.osm }} {{ F.osm_snapshot }}; {{ L.res }} {{ F.resolution_m }} m. {{ L.members }}: {{ F.members }}.<br>
+  {{ F.attr_s }} {{ F.attr_dem }} {{ F.attr_osm }}<br>
+  {{ L.method }} {{ L.verified }}
+</footer>
+</div></body></html>

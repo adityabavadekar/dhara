@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+data/
+project-clones/
+node_modules/
+dist/
+*.egg-info/
+.claude/
+
