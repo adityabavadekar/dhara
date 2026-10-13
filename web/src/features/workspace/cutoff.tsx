@@ -5,7 +5,7 @@ import { STATUS_COLOR, STATUS_LABEL, fmtHours, type Settlement, type useJobData 
 import { Input } from '@/components/ui/input'
 import { nameMatches } from '@/lib/translit'
 import { cn } from '@/lib/utils'
-import { Dot, Empty, List, Note, Row, Section, StatusBadge } from './common'
+import { Dot, Empty, List, Note, Row, Section, StatusBadge, ViewIntro } from './common'
 
 type Data = ReturnType<typeof useJobData>
 const FILTERS = ['cut_off', 'hospital_cut_off', 'detour', 'connected', 'no_baseline_route', 'not_on_network'] as const
@@ -40,6 +40,15 @@ export function CutOff({ d }: { d: Data }) {
 
   return (
     <div className='space-y-5 p-3'>
+      <ViewIntro
+        question='Who is cut off?'
+        answer={
+          <>
+            <b>{counts.cut_off ?? 0}</b> {(counts.cut_off ?? 0) === 1 ? 'settlement has' : 'settlements have'} no road out at all and <b>{counts.hospital_cut_off ?? 0}</b> more lost road
+            access to a hospital. Click a settlement to see its route to hospital before and after the event.
+          </>
+        }
+      />
       <Section title='Settlements' aside={`${d.settlements.length} mapped`}>
         <div className='flex flex-wrap gap-1'>
           <Chip active={filter === 'all'} onClick={() => setFilter('all')}>
@@ -59,7 +68,7 @@ export function CutOff({ d }: { d: Data }) {
         {rows.length === 0 ? (
           <Empty>{q ? 'No settlement matches.' : 'None in this group.'}</Empty>
         ) : (
-          <List className='max-h-[23.75rem] overflow-y-auto'>
+          <List className='max-h-[20rem] overflow-y-auto'>
             {rows.slice(0, 300).map((s) => (
               <Row key={s.id} at={s.at} active={sel?.kind === 'settlement' && sel.props.osm_id === s.raw.osm_id} onClick={() => selectSettlement(s)}>
                 <div className='flex items-center gap-2'>
@@ -68,6 +77,24 @@ export function CutOff({ d }: { d: Data }) {
                   <StatusBadge status={s.status} />
                 </div>
                 <div className='mt-0.5 truncate text-[0.6875rem] text-muted-foreground'>{access(s)}</div>
+                {(() => {
+                  const hlz = d.landingZones.find((lz) => lz.settlement === s.name)
+                  if (!hlz) return null
+                  return (
+                    <div className='mt-1 flex items-center gap-1.5'>
+                      <span
+                        className='inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[0.6875rem] font-medium text-emerald-700 dark:text-emerald-300 border border-emerald-500/20'
+                        title={`Landing clearing: ${hlz.areaM2} m², ${hlz.slopeDeg}° slope, ${hlz.elevationM}m MSL`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          app.select({ kind: 'point', props: hlz.raw, lngLat: hlz.at }, 15)
+                        }}
+                      >
+                        <span className='font-bold'>🚁</span> HLZ: {hlz.distanceM}m ({hlz.elevationM}m MSL, {hlz.slopeDeg}°)
+                      </span>
+                    </div>
+                  )
+                })()}
               </Row>
             ))}
           </List>

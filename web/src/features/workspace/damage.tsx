@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { GraduationCap, HeartPulse, Landmark } from 'lucide-react'
 import { useApp } from '@/context/app-state'
 import { pct, type useJobData } from '@/lib/job'
-import { Dot, Empty, Figure, List, Note, Row, Section, Stack, StatusBadge } from './common'
+import { Dot, Empty, Figure, List, Note, Row, Section, Stack, StatusBadge, ViewIntro } from './common'
 
 type Data = ReturnType<typeof useJobData>
 
@@ -12,12 +12,22 @@ export function Damage({ d }: { d: Data }) {
   const app = useApp()
   const { t, n } = d.facts
   const [showAllBridges, setShowAllBridges] = useState(false)
+  const [facAll, setFacAll] = useState(false)
   const sel = app.selection
   const facHit = d.facilities.filter((f) => f.hit)
-  const bridges = showAllBridges ? d.bridges : d.bridges.slice(0, 8)
+  const bridges = showAllBridges ? d.bridges : d.bridges.slice(0, 5)
 
   return (
     <div className='space-y-5 p-3'>
+      <ViewIntro
+        question='What was damaged?'
+        answer={
+          <>
+            <b>{t('buildings_hit') ?? '—'}</b> buildings lie in mapped flood or debris, <b>{t('network_failed_km') ?? '—'} km</b> of road is
+            impassable and <b>{t('bridges_lost') ?? '—'}</b> {t('bridges_lost') === '1' ? 'bridge is' : 'bridges are'} likely lost. Click any item to see it on the map.
+          </>
+        }
+      />
       <div className='grid grid-cols-3 gap-3 rounded-lg border bg-card p-3'>
         <Figure label='Buildings hit' value={t('buildings_hit')} of={t('buildings_total')} tone='text-amber-700 dark:text-amber-400' />
         <Figure label='Road impassable' value={t('network_failed_km')} unit='km' hint={`of ${t('network_km') ?? '—'} km`} />
@@ -61,8 +71,8 @@ export function Damage({ d }: { d: Data }) {
         {d.facilities.length === 0 ? (
           <Empty>No schools or health facilities are tagged in the pre-event map of this area.</Empty>
         ) : (
-          <List className='max-h-64 overflow-y-auto'>
-            {d.facilities.slice(0, 60).map((f) => {
+          <List>
+            {d.facilities.slice(0, facAll ? 200 : 6).map((f) => {
               const Icon = FAC_ICON[f.type as keyof typeof FAC_ICON] ?? Landmark
               return (
                 <Row
@@ -85,6 +95,11 @@ export function Damage({ d }: { d: Data }) {
               )
             })}
           </List>
+        )}
+        {d.facilities.length > 6 && (
+          <button type='button' className='text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline' onClick={() => setFacAll((v) => !v)}>
+            {facAll ? 'Show fewer' : `Show all ${d.facilities.length}`}
+          </button>
         )}
       </Section>
 
@@ -113,7 +128,7 @@ export function Damage({ d }: { d: Data }) {
                 </Row>
               ))}
             </List>
-            {d.bridges.length > 8 && (
+            {d.bridges.length > 5 && (
               <button type='button' className='text-[0.6875rem] text-muted-foreground underline-offset-2 hover:underline' onClick={() => setShowAllBridges((v) => !v)}>
                 {showAllBridges ? 'Show fewer' : `Show all ${d.bridges.length}`}
               </button>

@@ -3,7 +3,7 @@ import { Eye, EyeOff } from 'lucide-react'
 import { useApp, type LayerId } from '@/context/app-state'
 import { api } from '@/lib/api'
 import type { useJobData } from '@/lib/job'
-import { Dot, Note, Section, Stack } from './common'
+import { Dot, Note, Section, Stack, ViewIntro } from './common'
 
 type Data = ReturnType<typeof useJobData>
 
@@ -12,6 +12,10 @@ const MEMBER_LABEL: Record<string, string> = {
   s1_change_bidirectional: 'Radar change: debris and scour',
   ml_unet_kurosiwo: 'Segmentation model trained on Kuro Siwo',
   s2_indices: 'Optical: water, vegetation loss, bare soil',
+  s2_mndwi: 'Optical: new water',
+  s2_ndvi_bsi: 'Optical: plant loss and new bare ground',
+  s1_zscore_change: 'Radar against several earlier dates: debris and scour',
+  s1_zscore_water: 'Radar against several earlier dates: new water',
 }
 
 function LayerRow({ id, color, label, value, unit, note }: { id: LayerId; color: string; label: string; value: string | null; unit: string; note?: string }) {
@@ -47,6 +51,15 @@ export function Flooding({ d }: { d: Data }) {
 
   return (
     <div className='space-y-5 p-3'>
+      <ViewIntro
+        question='Where did the flood hit?'
+        answer={
+          <>
+            Radar change between the before and after images marks <b>{t('area_debris_km2') ?? '—'} km²</b> of debris and scour
+            and <b>{t('area_flood_km2') ?? '—'} km²</b> of new water. Click a row to show or hide it on the map.
+          </>
+        }
+      />
       <Section title='Mapped areas' aside='click to show or hide'>
         <div className='divide-y overflow-hidden rounded-lg border bg-card'>
           <LayerRow id='flood' color='#2563eb' label='New water' value={t('area_flood_km2')} unit='km²' note='Water that was not there before the event' />

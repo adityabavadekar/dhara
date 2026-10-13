@@ -34,7 +34,7 @@ from dhara.geo import AOI, reproject
 from dhara.jobs.exports import export_layers
 from dhara.jobs.provenance import Provenance
 from dhara.jobs.scene_selection import S1Pair, find_s1_pairs
-from dhara.members import classical, debris, optical
+from dhara.members import classical, debris, optical, zscore
 from dhara.network import graph as netgraph
 from dhara.terrain import hydro
 from dhara.timeutil import EventTime, iso_utc
@@ -57,6 +57,8 @@ class JobSpec(BaseModel):
     relative_orbit: int | None = None  # force a single track
     use_s2: bool = True
     use_ml: bool = True
+    # Multi-date radar baseline (members.zscore); needs a second pre-event pass on the track.
+    use_zscore: bool = True
 
 
 class JobResult(BaseModel):
@@ -217,11 +219,11 @@ def _scenes(spec: JobSpec, prov: Provenance) -> list[S1Pair]:
     return tracks
 
 
-def _s1_members(tracks, cache, grid, in_aoi, prov, progress):
+def _s1_members(tracks, cache, grid, in_aoi, prov, progress, use_zscore: bool = True):
     evidence: list[F.Evidence] = []
     perm_water = np.zeros(in_aoi.shape, bool)
     with prov.stage("s1_members") as st:
-        water_maps, change_maps = [], []
+        water_maps, change_maps, zc_maps, zw_maps = [], [], [], []
         obs_any = np.zeros(in_aoi.shape, bool)
         for k, pair in enumerate(tracks):
             pre = _cached_pass(cache, pair.pre, grid, "GAMMA0_TERRAIN", False)
@@ -239,16 +241,27 @@ def _s1_members(tracks, cache, grid, in_aoi, prov, progress):
             water_maps.append(cr.p_flood)
             change_maps.append(dr.p_change)
             perm_water |= cr.permanent_water
+            zr = None
+            if use_zscore and pre2 is not None:
+                zr = zscore.run(
+                    [pre2[:2], pre[:2]], post, obs, water_db=cr.meta["water_threshold_db"]
+                )
+                zc_maps.append(zr.p_change)
+                zw_maps.append(np.where(cr.permanent_water, 0.0, zr.p_water).astype(np.float32))
             st[f"R{pair.relative_orbit:03d}"] = {
                 "observable_fraction": round(float(obs[in_aoi].mean()), 4),
                 "classical": cr.meta,
                 "debris": dr.meta,
+                "zscore": zr.meta if zr is not None else "skipped: no second pre-event pass",
             }
             progress("sentinel1", 0.2 + 0.25 * (k + 1) / len(tracks))
         evidence.append(F.Evidence("s1_water_logratio", "flood", avg_logit(water_maps), 1.0, "s1"))
         evidence.append(
             F.Evidence("s1_change_bidirectional", "debris", avg_logit(change_maps), 1.0, "s1")
         )
+        if zc_maps:
+            evidence.append(F.Evidence("s1_zscore_change", "debris", avg_logit(zc_maps), 1.0, "s1"))
+            evidence.append(F.Evidence("s1_zscore_water", "flood", avg_logit(zw_maps), 1.0, "s1"))
         st["observable_fraction_any_track"] = round(float(obs_any[in_aoi].mean()), 4)
     return evidence, perm_water
 
@@ -404,9 +417,12 @@ def _run(spec: JobSpec, cache: Path, job_dir: Path, prov: Provenance, progress: 
         st["channel_area_km2"] = hydro.CHANNEL_AREA_KM2
         st["terrain_buffer_m"] = TERRAIN_BUFFER_M
     write_cog(str(job_dir / "hand.tif"), hand, grid, nodata=float("nan"))
+    dem_10m = hydro.resample_to(terr.dem, terr.grid, grid)
+    write_cog(str(job_dir / "dem.tif"), dem_10m, grid, nodata=float("nan"))
+    write_cog(str(job_dir / "slope.tif"), slope, grid, nodata=float("nan"))
 
     progress("sentinel1", 0.2)
-    evidence, perm_water = _s1_members(tracks, cache, grid, in_aoi, prov, progress)
+    evidence, perm_water = _s1_members(tracks, cache, grid, in_aoi, prov, progress, spec.use_zscore)
     if spec.use_ml:
         ml = _ml_member(tracks, cache, grid, in_aoi, prov)
         if ml is not None:
@@ -540,7 +556,14 @@ def _run(spec: JobSpec, cache: Path, job_dir: Path, prov: Provenance, progress: 
 
     progress("outputs", 0.92)
     with prov.stage("exports"):
-        export_layers(job_dir, grid, in_aoi)
+        export_layers(
+            job_dir,
+            grid,
+            in_aoi,
+            cache,
+            prov.doc.get("data_sources", {}).get("sentinel1"),
+            prov.doc.get("data_sources", {}).get("sentinel2"),
+        )
     (job_dir / "summary.json").write_text(json.dumps(summary, indent=2, default=str))
     prov.write(job_dir / "provenance.json")  # the sitrep reads both
     progress("sitrep", 0.96)

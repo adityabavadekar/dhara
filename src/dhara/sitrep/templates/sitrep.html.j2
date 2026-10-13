@@ -320,6 +320,49 @@
 </section>
 {% endif %}
 
+{% if F.change_before_day %}
+<section class="sheet">
+  <h2>{{ L.ch_title }}</h2>
+  <p class="note" style="font-size:8.2pt;color:var(--ink);margin-bottom:6px">{{ L.ch_intro_a }} <b>{{ F.change_before_day }}</b> {{ L.ch_intro_b }} <b>{{ F.change_after_day }}</b>. {{ L.ch_intro_c }} <b>{{ F.change_clear_pct }}%</b> {{ L.ch_intro_d }}</p>
+  {% if maps.change %}
+  <div class="map"><img src="data:image/png;base64,{{ maps.change }}" alt="{{ L.ch_title }}"></div>
+  <div class="legend">
+    <span><span class="ln" style="background:#cbd5e1;height:4px"></span>{{ L.ch_lg_before }}</span>
+    <span><span class="ln" style="background:#22d3ee;height:4px"></span>{{ L.ch_lg_after }}</span>
+    <span><span class="rk sq" style="background:var(--ink)">#</span> {{ L.ch_lg_rank }}</span>
+  </div>
+  <p class="note">{{ L.ch_map_note }}</p>
+  {% endif %}
+  <div class="cols" style="margin-top:6px">
+    <div>
+      <h3>{{ L.ch_t_measures }}</h3>
+      <table>
+        <tr><th>{{ L.ch_c_measure }}</th><th class="n">{{ L.ch_c_before }}</th><th class="n">{{ L.ch_c_after }}</th><th class="n">{{ L.ch_c_change }}</th></tr>
+        {% if F.change_width_before_m %}<tr><td>{{ L.ch_width }} <span class="note">({{ L.ch_width_note_a }} {{ F.change_stations }} {{ L.ch_width_note_b }})</span></td><td class="n">{{ F.change_width_before_m }} m</td><td class="n">{{ F.change_width_after_m }} m</td><td class="n"><b>{{ F.change_width_delta_m }} m</b></td></tr>{% endif %}
+        <tr><td>{{ L.ch_water }}</td><td class="n">{{ F.change_water_before_km2 }} km²</td><td class="n">{{ F.change_water_after_km2 }} km²</td><td class="n"><b>{{ F.change_water_pct or '—' }}</b></td></tr>
+        <tr><td>{{ L.ch_channel }}</td><td class="n">{{ F.change_channel_before_km2 }} km²</td><td class="n">{{ F.change_channel_after_km2 }} km²</td><td class="n"><b>{{ F.change_channel_pct or '—' }}</b></td></tr>
+      </table>
+      {% if F.change_shift_max_m %}
+      <dl class="kv" style="margin-top:6px">
+        <dt>{{ L.ch_widened }} {{ F.change_widened_threshold_m }} m</dt><dd>{{ F.change_widened }} / {{ F.change_stations }}</dd>
+        <dt>{{ L.ch_shift }}</dt><dd>{{ F.change_shift_max_m }} m · {{ L.ch_median }} {{ F.change_shift_median_m }} m</dd>
+      </dl>
+      {% endif %}
+    </div>
+    <div>
+      <h3>{{ L.ch_t_stations }}</h3>
+      {% if T.change_stations %}
+      <table>
+        <tr><th></th><th class="n">{{ L.ch_c_before }} (m)</th><th class="n">{{ L.ch_c_after }} (m)</th><th class="n">{{ L.ch_c_change }}</th><th class="n">{{ L.ch_s_moved }}</th><th></th></tr>
+        {% for r in T.change_stations %}<tr><td style="width:18px"><span class="rk sq" style="background:var(--ink)">{{ r.rank }}</span></td><td class="n">{{ r.before }}</td><td class="n">{{ r.after }}</td><td class="n"><b>{{ r.delta }}</b></td><td class="n">{{ r.shift }}</td><td class="pin"><a href="{{ r.gmaps_url }}">↗ Maps</a></td></tr>{% endfor %}
+      </table>
+      {% else %}<p class="empty">{{ L.ch_none }}</p>{% endif %}
+    </div>
+  </div>
+  <p class="note" style="margin-top:6px">{{ L.ch_caveat }}</p>
+</section>
+{% endif %}
+
 {# ------------------------------------------------------------------ last page: data and method #}
 <section class="sheet">
   <h2>{{ L.p5_title }}</h2>

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as maplibregl from 'maplibre-gl'
 import type { GeoJSONSource, Map as MLMap } from 'maplibre-gl'
 import { useQuery } from '@tanstack/react-query'
+import { ChevronsLeftRight } from 'lucide-react'
 import { LAYERS, useApp, type LayerId, type Selection } from '@/context/app-state'
 import { useTheme } from '@/context/theme-provider'
 import { api, fileUrl, type Polygon } from '@/lib/api'
@@ -14,6 +15,7 @@ import { MapSearch } from './map-search'
 import { MapToolbar, type Basemap, type MeasureMode } from './map-toolbar'
 import { SelectionCard } from './selection-card'
 import { StatusBar } from './status-bar'
+import { SWEEP_DEFAULT, SweepPanel, sweepLayers } from './sweep-panel'
 
 const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services'
 export const BASEMAPS: Record<Basemap, { tiles: string[]; attribution: string; label: string; maxzoom: number }> = {
@@ -46,8 +48,8 @@ export const BASEMAPS: Record<Basemap, { tiles: string[]; attribution: string; l
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
 const RASTERS = ['unobs', 'water', 'flood', 'debris', 'confidence'] as const
 const SOURCES = [
-  'aoi', 'draft', 'measure', 'buildings', 'roads', 'bridges', 'failed', 'settlements', 'hospitals',
-  'route', 'route-breaks', 'f-path', 'f-corridor', 'f-settlements', 'f-start', 'sel',
+  'aoi', 'draft', 'measure', 'buildings', 'roads', 'bridges', 'failed', 'settlements', 'hospitals', 'hlz',
+  'route', 'route-breaks', 'hz-outline', 'change', 'f-path', 'f-corridor', 'f-settlements', 'f-start', 'sel', 'origin',
 ]
 
 const LAYER_MAP: Record<LayerId, string[]> = {
@@ -60,7 +62,7 @@ const LAYER_MAP: Record<LayerId, string[]> = {
   roads: ['v-roads'],
   bridges: ['v-bridges-casing', 'v-bridges'],
   failed: ['v-failed'],
-  settlements: ['v-settlements', 'v-settlements-label'],
+  settlements: ['v-settlements', 'v-settlements-label', 'v-hlz', 'v-hlz-symbol'],
   hospitals: ['v-hospitals', 'v-hospitals-symbol', 'v-hospitals-label'],
   flowpath: ['f-corridor', 'f-path', 'f-pulse', 'f-settlements', 'f-settlements-label', 'f-start'],
 }
@@ -71,6 +73,7 @@ const CLICKABLE: Record<string, Selection['kind']> = {
   'v-bridges': 'bridge',
   'v-buildings': 'building',
   'v-roads': 'road',
+  'v-hlz': 'point',
   'f-settlements': 'flow-settlement',
 }
 
@@ -108,12 +111,63 @@ function addLayers(map: MLMap) {
   map.addLayer({ id: 'f-corridor', type: 'fill', source: 'f-corridor', paint: { 'fill-color': '#7c3aed', 'fill-opacity': 0.07 } })
   map.addLayer({ id: 'f-path', type: 'line', source: 'f-path', paint: { 'line-color': '#7c3aed', 'line-width': 3 } })
   map.addLayer({ id: 'f-pulse', type: 'line', source: 'f-path', paint: { 'line-color': '#ffffff', 'line-width': 1.5, 'line-dasharray': [0, 4, 3] } })
+  // Outline of mapped flood and debris, shown on both halves of the before/after sweep.
+  map.addLayer({ id: 'hz-outline-casing', type: 'line', source: 'hz-outline', layout: { visibility: 'none' }, paint: { 'line-color': '#0f172a', 'line-width': 2.6, 'line-opacity': 0.7 } })
+  map.addLayer({ id: 'hz-outline', type: 'line', source: 'hz-outline', layout: { visibility: 'none' }, paint: { 'line-color': ['match', ['get', 'hazard'], 'flood', '#38bdf8', '#fbbf24'], 'line-width': 1.2 } })
+  // Measured before/after change for the sweep: water edges and river-channel width at stations.
+  // Before-date features are drawn white on the left map, after-date ones cyan on the right map.
+  const kind = (k: string) => ['==', ['get', 'kind'], k] as maplibregl.FilterSpecification
+  const hidden = { visibility: 'none' } as const
+  map.addLayer({ id: 'c-water-before', type: 'line', source: 'change', filter: kind('water_before'), layout: hidden, paint: { 'line-color': '#f8fafc', 'line-width': 1.2 } })
+  map.addLayer({ id: 'c-water-after', type: 'line', source: 'change', filter: kind('water_after'), layout: hidden, paint: { 'line-color': '#22d3ee', 'line-width': 1.2 } })
+  for (const [k, c] of [['before', '#f8fafc'], ['after', '#22d3ee']] as const) {
+    map.addLayer({ id: `c-width-${k}-casing`, type: 'line', source: 'change', filter: kind(`width_${k}`), layout: { ...hidden, 'line-cap': 'round' }, paint: { 'line-color': '#0f172a', 'line-width': 6 } })
+    map.addLayer({ id: `c-width-${k}`, type: 'line', source: 'change', filter: kind(`width_${k}`), layout: { ...hidden, 'line-cap': 'round' }, paint: { 'line-color': c, 'line-width': 3 } })
+  }
+  const label: maplibregl.SymbolLayerSpecification['layout'] = { 'text-font': ['Open Sans Semibold'], 'text-size': 11, 'text-anchor': 'left', 'text-offset': [0.4, 0], 'text-optional': true }
+  const dark = { 'text-color': '#ffffff', 'text-halo-color': '#0f172a', 'text-halo-width': 1.6 }
+  map.addLayer({
+    id: 'c-label-before',
+    type: 'symbol',
+    source: 'change',
+    filter: kind('station'),
+    layout: { ...hidden, ...label, 'text-field': ['concat', ['to-string', ['get', 'width_before_m']], ' m'] },
+    paint: dark,
+  })
+  map.addLayer({
+    id: 'c-label-after',
+    type: 'symbol',
+    source: 'change',
+    filter: kind('station'),
+    layout: {
+      ...hidden,
+      ...label,
+      'text-field': [
+        'concat',
+        ['to-string', ['get', 'width_after_m']],
+        ' m',
+        ['case', ['>=', ['get', 'width_change_m'], 0], ' (+', ' ('],
+        ['to-string', ['get', 'width_change_m']],
+        ')',
+        ['case', ['>=', ['get', 'shift_m'], 50], ['concat', '\nmoved ', ['to-string', ['get', 'shift_m']], ' m'], ''],
+      ],
+    },
+    paint: { ...dark, 'text-color': '#a5f3fc' },
+  })
+  // Routes carry a dark casing so they stay visible on satellite imagery as well as on plain maps.
+  map.addLayer({
+    id: 'route-casing',
+    type: 'line',
+    source: 'route',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#0f172a', 'line-width': 7, 'line-opacity': 0.75 },
+  })
   map.addLayer({
     id: 'route-pre',
     type: 'line',
     source: 'route',
     filter: ['==', ['get', 'kind'], 'pre'],
-    paint: { 'line-color': '#64748b', 'line-width': 3, 'line-dasharray': [1.5, 1.5] },
+    paint: { 'line-color': '#f8fafc', 'line-width': 3, 'line-dasharray': [1.5, 1.2] },
   })
   map.addLayer({
     id: 'route-post',
@@ -121,7 +175,14 @@ function addLayers(map: MLMap) {
     source: 'route',
     filter: ['==', ['get', 'kind'], 'post'],
     layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': '#2563eb', 'line-width': 4 },
+    paint: { 'line-color': '#38bdf8', 'line-width': 4 },
+  })
+  map.addLayer({
+    id: 'route-direct',
+    type: 'line',
+    source: 'route',
+    filter: ['==', ['get', 'kind'], 'direct'],
+    paint: { 'line-color': '#dc2626', 'line-width': 2.5, 'line-dasharray': [3, 2] },
   })
   map.addLayer({
     id: 'v-bridges-casing',
@@ -167,6 +228,19 @@ function addLayers(map: MLMap) {
     layout: { 'text-field': '+', 'text-font': ['Open Sans Bold'], 'text-size': 13, 'text-allow-overlap': true, 'text-ignore-placement': true },
     paint: { 'text-color': '#dc2626' },
   })
+  map.addLayer({
+    id: 'v-hlz',
+    type: 'circle',
+    source: 'hlz',
+    paint: { 'circle-radius': 8, 'circle-color': '#059669', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
+  })
+  map.addLayer({
+    id: 'v-hlz-symbol',
+    type: 'symbol',
+    source: 'hlz',
+    layout: { 'text-field': 'H', 'text-font': ['Open Sans Bold'], 'text-size': 10, 'text-allow-overlap': true, 'text-ignore-placement': true },
+    paint: { 'text-color': '#ffffff' },
+  })
   map.addLayer({ id: 'f-settlements', type: 'circle', source: 'f-settlements', paint: { 'circle-radius': 5, 'circle-color': '#7c3aed', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.5 } })
   map.addLayer({ id: 'f-start', type: 'circle', source: 'f-start', paint: { 'circle-radius': 7, 'circle-color': '#7c3aed', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2.5 } })
   map.addLayer({
@@ -207,6 +281,46 @@ function addLayers(map: MLMap) {
   map.addLayer({ id: 'measure-line', type: 'line', source: 'measure', paint: { 'line-color': '#0f172a', 'line-width': 2, 'line-dasharray': [2, 1] } })
   map.addLayer({ id: 'measure-points', type: 'circle', source: 'measure', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 4, 'circle-color': '#ffffff', 'circle-stroke-color': '#0f172a', 'circle-stroke-width': 2 } })
   map.addLayer({ id: 'sel-ring', type: 'circle', source: 'sel', paint: { 'circle-radius': 13, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#0f172a', 'circle-stroke-width': 2.5 } })
+  map.addLayer({
+    id: 'sel-hospital-beacon',
+    type: 'circle',
+    source: 'sel',
+    filter: ['==', ['get', 'isHospital'], true],
+    paint: {
+      'circle-radius': 20,
+      'circle-color': 'rgba(220, 38, 38, 0.15)',
+      'circle-stroke-color': '#dc2626',
+      'circle-stroke-width': 2.5,
+    },
+  })
+  map.addLayer({
+    id: 'origin-marker',
+    type: 'circle',
+    source: 'origin',
+    paint: {
+      'circle-radius': 7,
+      'circle-color': '#0284c7',
+      'circle-stroke-color': '#ffffff',
+      'circle-stroke-width': 2,
+    },
+  })
+  map.addLayer({
+    id: 'origin-label',
+    type: 'symbol',
+    source: 'origin',
+    layout: {
+      'text-field': 'Start',
+      'text-font': ['Open Sans Semibold'],
+      'text-size': 11,
+      'text-offset': [0, -1.3],
+      'text-anchor': 'bottom',
+    },
+    paint: { 'text-color': '#0369a1', ...halo },
+  })
+}
+
+function applySweep(map: MLMap, keep: Set<string>) {
+  for (const l of map.getStyle().layers) if (l.id !== 'bg') map.setLayoutProperty(l.id, 'visibility', keep.has(l.id) ? 'visible' : 'none')
 }
 
 /** A MapLibre control button that brings the analysed area back into view, like Google Maps' recentre. */
@@ -235,11 +349,21 @@ class RecenterControl implements maplibregl.IControl {
 export function MapView() {
   const ref = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MLMap | null>(null)
+  const secondaryRef = useRef<HTMLDivElement>(null)
+  const secondaryMapRef = useRef<MLMap | null>(null)
+  const isSyncingRef = useRef(false)
   const [ready, setReady] = useState(false)
   const { resolvedTheme } = useTheme()
-  const [basemap, setBasemap] = useState<Basemap>(resolvedTheme === 'dark' ? 'dark' : 'light')
+  const [basemap, setBasemap] = useState<Basemap>('imagery')
   const [measure, setMeasure] = useState<MeasureMode>('none')
   const [measurePts, setMeasurePts] = useState<[number, number][]>([])
+  const [sweep, setSweep] = useState(false)
+  const [sweepPos, setSweepPos] = useState(50)
+  const [sweepKind, setSweepKind] = useState<'optical' | 'radar'>('optical')
+  const [sweepOpts, setSweepOpts] = useState(SWEEP_DEFAULT)
+  const sweepOptsRef = useRef(sweepOpts)
+  sweepOptsRef.current = sweepOpts
+  const flowRef = useRef<string | null>(null)
   const [hover, setHover] = useState<{ x: number; y: number; text: string } | null>(null)
   const [cursor, setCursor] = useState<[number, number] | null>(null)
   const [view, setView] = useState({ zoom: 8, mPerPx: 600 })
@@ -423,6 +547,8 @@ export function MapView() {
   const job = useJob(app.jobId)
   const done = job.data?.status === 'done'
   const manifest = useQuery({ queryKey: ['manifest', app.jobId], queryFn: () => api.manifest(app.jobId!), enabled: !!app.jobId && done })
+  const imgSet =
+    sweepKind === 'radar' && manifest.data?.imagery_radar ? manifest.data.imagery_radar : manifest.data?.imagery
 
   useEffect(() => {
     const map = mapRef.current
@@ -440,6 +566,7 @@ export function MapView() {
       ['failed', 'failed_edges'],
       ['settlements', 'settlements'],
       ['hospitals', 'hospitals'],
+      ['hlz', 'hlz'],
     ]
     if (!m || !id || !done) {
       for (const [src] of vec) setData(map, src, EMPTY)
@@ -453,22 +580,176 @@ export function MapView() {
     }
     for (const [src, name] of vec) {
       const v = m.vectors[name]
-      setData(map, src, v ? fileUrl(id, v.url) : EMPTY)
+      const url = v ? fileUrl(id, v.url) : (name === 'hlz' ? fileUrl(id, 'web/hlz.geojson') : null)
+      setData(map, src, url ?? EMPTY)
     }
+    const hz = m.vectors.hazard_outline
+    setData(map, 'hz-outline', hz ? fileUrl(id, hz.url) : EMPTY)
+    setData(map, 'change', m.vectors.change ? fileUrl(id, m.vectors.change.url) : EMPTY)
   }, [manifest.data, app.jobId, done, ready])
 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
-    // While setting up a new analysis the previous results would only get in the way.
-    const show = (id: LayerId) => app.visible[id] && (app.mode === 'workspace' || id === 'flowpath')
-    for (const [toggle, layers] of Object.entries(LAYER_MAP))
-      for (const l of layers) if (map.getLayer(l)) map.setLayoutProperty(l, 'visibility', show(toggle as LayerId) ? 'visible' : 'none')
-  }, [app.visible, app.mode, ready, manifest.data])
+
+    const img = imgSet
+    if (map.getLayer('img-before')) map.removeLayer('img-before')
+    if (map.getSource('img-before')) map.removeSource('img-before')
+    if (sweep && img && app.jobId) {
+      map.addSource('img-before', { type: 'image', url: fileUrl(app.jobId, img.before.url), coordinates: img.before.coordinates as never })
+      map.addLayer({ id: 'img-before', type: 'raster', source: 'img-before', paint: { 'raster-fade-duration': 0 } }, 'aoi-fill')
+    }
+
+    if (sweep) {
+      // During the sweep only imagery, the area boundary and the overlays chosen in the sweep bar
+      // are shown, so the two images can be compared without clutter.
+      applySweep(map, sweepLayers(sweepOpts, 'before'))
+      const map2 = secondaryMapRef.current
+      if (map2?.isStyleLoaded()) applySweep(map2, sweepLayers(sweepOpts, 'after'))
+    }
+    if (!sweep) {
+      for (const l of map.getStyle().layers) if (l.id.startsWith('c-') || l.id.startsWith('hz-outline')) map.setLayoutProperty(l.id, 'visibility', 'none')
+      // Layers the sweep hid that are not user toggles (routes, selection, drawing, measuring).
+      const toggled = new Set(Object.values(LAYER_MAP).flat())
+      for (const l of map.getStyle().layers)
+        if (!toggled.has(l.id) && !l.id.startsWith('hz-outline') && !l.id.startsWith('c-') && !l.id.startsWith('r-') && l.id !== 'route-direct')
+          map.setLayoutProperty(l.id, 'visibility', 'visible')
+      // Normal interactive mode on Map 1
+      const show = (id: LayerId) => app.visible[id] && (app.mode === 'workspace' || id === 'flowpath')
+      for (const [toggle, layers] of Object.entries(LAYER_MAP)) {
+        for (const l of layers) {
+          if (map.getLayer(l)) map.setLayoutProperty(l, 'visibility', show(toggle as LayerId) ? 'visible' : 'none')
+        }
+      }
+      if (map.getLayer('route-breaks')) map.setLayoutProperty('route-breaks', 'visibility', 'visible')
+      if (map.getLayer('route-post')) map.setLayoutProperty('route-post', 'visibility', 'visible')
+      if (map.getLayer('v-roads')) {
+        map.setLayoutProperty('v-roads', 'visibility', show('roads') ? 'visible' : 'none')
+        map.setPaintProperty('v-roads', 'line-color', '#7c2d12')
+      }
+      if (map.getLayer('v-bridges')) map.setPaintProperty('v-bridges', 'line-color', statusColor('#94a3b8'))
+      if (map.getLayer('v-settlements')) map.setPaintProperty('v-settlements', 'circle-color', statusColor('#94a3b8'))
+      if (map.getLayer('v-buildings')) {
+        map.setPaintProperty('v-buildings', 'fill-color', ['match', ['get', 'status'], 'hit', '#b45309', '#94a3b8'])
+      }
+    }
+  }, [sweep, app.visible, app.mode, ready, manifest.data, app.jobId, imgSet, sweepOpts])
+
+  // ---------------------------------------------------------------- secondary map for sweep
+  useEffect(() => {
+    if (!sweep || !secondaryRef.current || !ready) {
+      if (secondaryMapRef.current) {
+        secondaryMapRef.current.remove()
+        secondaryMapRef.current = null
+      }
+      return
+    }
+    const map1 = mapRef.current
+    if (!map1) return
+
+    const map2 = new maplibregl.Map({
+      container: secondaryRef.current,
+      style: {
+        version: 8,
+        glyphs: 'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf',
+        sources: {},
+        layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#e2e8f0' } }],
+      },
+      center: map1.getCenter(),
+      zoom: map1.getZoom(),
+      bearing: map1.getBearing(),
+      pitch: map1.getPitch(),
+      attributionControl: false,
+      interactive: false,
+    })
+
+    let cleanSync: (() => void) | null = null
+
+    map2.on('load', () => {
+      const b = BASEMAPS[basemap]
+      map2.addSource('basemap', { type: 'raster', tiles: b.tiles, tileSize: 256, attribution: b.attribution, maxzoom: b.maxzoom })
+      map2.addLayer({ id: 'basemap', type: 'raster', source: 'basemap', paint: { 'raster-saturation': basemap === 'imagery' ? -0.3 : 0 } })
+
+      for (const id of SOURCES) map2.addSource(id, { type: 'geojson', data: EMPTY })
+      addLayers(map2)
+      const img = imgSet
+      if (img && app.jobId) {
+        map2.addSource('img-after', { type: 'image', url: fileUrl(app.jobId, img.after.url), coordinates: img.after.coordinates as never })
+        map2.addLayer({ id: 'img-after', type: 'raster', source: 'img-after', paint: { 'raster-fade-duration': 0 } }, 'aoi-fill')
+        const hz = manifest.data?.vectors.hazard_outline
+        if (hz) setData(map2, 'hz-outline', fileUrl(app.jobId, hz.url))
+        const ch = manifest.data?.vectors.change
+        if (ch) setData(map2, 'change', fileUrl(app.jobId, ch.url))
+      }
+
+      setData(map2, 'aoi', app.aoi ? { type: 'Feature', geometry: app.aoi, properties: {} } : EMPTY)
+
+      const m = manifest.data
+      const id = app.jobId
+      if (m && id && done) {
+        for (const r of RASTERS) {
+          const layer = m.rasters[r]
+          if (!layer) continue
+          map2.addSource(`r-${r}`, { type: 'image', url: `${fileUrl(id, layer.url)}?v=${id}`, coordinates: layer.coordinates as never })
+          map2.addLayer({ id: `r-${r}`, type: 'raster', source: `r-${r}`, paint: { 'raster-resampling': 'nearest', 'raster-opacity': 0.85, 'raster-fade-duration': 0 } }, 'aoi-fill')
+        }
+        const vec: [string, string][] = [
+          ['buildings', 'buildings'],
+          ['roads', 'roads'],
+          ['bridges', 'bridges'],
+          ['failed', 'failed_edges'],
+          ['settlements', 'settlements'],
+          ['hospitals', 'hospitals'],
+          ['hlz', 'hlz'],
+        ]
+        for (const [src, name] of vec) {
+          const v = m.vectors[name]
+          const url = v ? fileUrl(id, v.url) : (name === 'hlz' ? fileUrl(id, 'web/hlz.geojson') : null)
+          setData(map2, src, url ?? EMPTY)
+        }
+      }
+
+      if (flowRef.current) {
+        setData(map2, 'f-path', fileUrl(flowRef.current, 'flowpath.geojson'))
+        setData(map2, 'f-corridor', fileUrl(flowRef.current, 'corridor.geojson'))
+        setData(map2, 'f-settlements', fileUrl(flowRef.current, 'settlements.geojson'))
+      }
+      applySweep(map2, sweepLayers(sweepOptsRef.current, 'after'))
+      map2.resize()
+    })
+
+    // Sync camera from map1 to map2
+    const onMove = () => {
+      if (!secondaryMapRef.current || isSyncingRef.current) return
+      isSyncingRef.current = true
+      secondaryMapRef.current.jumpTo({
+        center: map1.getCenter(),
+        zoom: map1.getZoom(),
+        bearing: map1.getBearing(),
+        pitch: map1.getPitch(),
+      })
+      isSyncingRef.current = false
+    }
+    map1.on('move', onMove)
+    cleanSync = () => map1.off('move', onMove)
+
+    const resizeTimer = setTimeout(() => {
+      secondaryMapRef.current?.resize()
+    }, 80)
+
+    secondaryMapRef.current = map2
+    return () => {
+      clearTimeout(resizeTimer)
+      cleanSync?.()
+      map2.remove()
+      secondaryMapRef.current = null
+    }
+  }, [sweep, ready, basemap, manifest.data, app.jobId, done, app.aoi, imgSet])
 
   // ---------------------------------------------------------------- flow path
   const flow = useJob(app.flowJobId)
   const flowOk = !!app.flowJobId && flow.data?.status === 'done'
+  flowRef.current = flowOk ? app.flowJobId : null
   useEffect(() => {
     const map = mapRef.current
     const id = app.flowJobId
@@ -517,22 +798,53 @@ export function MapView() {
     const map = mapRef.current
     if (!map || !ready) return
     const s = app.selection
-    setData(map, 'sel', s ? { type: 'Feature', geometry: { type: 'Point', coordinates: s.lngLat }, properties: {} } : EMPTY)
+    const isHosp = s?.kind === 'hospital'
+    const selFeat = s ? { type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: s.lngLat }, properties: { isHospital: isHosp } } : EMPTY
+    const originFeat = s?.originLngLat ? { type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: s.originLngLat }, properties: { name: 'Origin' } } : EMPTY
+
+    setData(map, 'sel', selFeat)
+    setData(map, 'origin', originFeat)
+    if (secondaryMapRef.current) {
+      setData(secondaryMapRef.current, 'sel', selFeat)
+      setData(secondaryMapRef.current, 'origin', originFeat)
+    }
+
     const r = routeSettlement
     const feats: GeoJSON.Feature[] = []
-    if (r?.pathBefore.length && r.pathBefore.length > 1) feats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: r.pathBefore }, properties: { kind: 'pre' } })
-    if (r?.pathAfter.length && r.pathAfter.length > 1) feats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: r.pathAfter }, properties: { kind: 'post' } })
-    setData(map, 'route', { type: 'FeatureCollection', features: feats })
-    setData(map, 'route-breaks', {
-      type: 'FeatureCollection',
-      features: (r?.breaks ?? []).map((c) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: c }, properties: {} })),
-    })
-    // Frame the settlement and its whole hospital route (the fly-to below is skipped for these).
-    const pts = [...(r?.pathBefore ?? []), ...(r?.pathAfter ?? [])]
-    if (r && pts.length > 1) {
-      const b = new maplibregl.LngLatBounds(r.at, r.at)
+    // Only real road routes are drawn; a straight line between two points would look like a route.
+    if (s?.routePath && s.routePath.length > 1) {
+      feats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: s.routePath }, properties: { kind: 'post' } })
+    } else if (r) {
+      if (r.pathBefore.length > 1) feats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: r.pathBefore }, properties: { kind: 'pre' } })
+      if (r.pathAfter.length > 1) feats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: r.pathAfter }, properties: { kind: 'post' } })
+    }
+
+    const routeData = { type: 'FeatureCollection' as const, features: feats }
+    const breaksData = {
+      type: 'FeatureCollection' as const,
+      features: (r?.breaks ?? []).map((c) => ({ type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: c }, properties: {} })),
+    }
+
+    setData(map, 'route', routeData)
+    setData(map, 'route-breaks', breaksData)
+    if (secondaryMapRef.current) {
+      setData(secondaryMapRef.current, 'route', routeData)
+      setData(secondaryMapRef.current, 'route-breaks', breaksData)
+    }
+
+    // Frame the settlement, hospital, origin, and entire evacuation route
+    const pts = [
+      ...(s?.routePath?.length ? [s.lngLat] : []),
+      ...(s?.routePath ?? []),
+      ...(r?.pathBefore ?? []),
+      ...(r?.pathAfter ?? []),
+    ]
+    if (pts.length > 1) {
+      const b = new maplibregl.LngLatBounds(pts[0], pts[0])
       for (const c of pts) b.extend(c)
-      map.fitBounds(b, { padding: { top: 70, bottom: 50, left: 350, right: 90 }, duration: 700, maxZoom: 14 })
+      map.fitBounds(b, { padding: { top: 80, bottom: 60, left: 360, right: 100 }, duration: 700, maxZoom: 15 })
+    } else if (s && !r) {
+      map.flyTo({ center: s.lngLat, zoom: Math.max(map.getZoom(), 13), duration: 700 })
     }
   }, [app.selection, routeSettlement, ready])
 
@@ -576,6 +888,22 @@ export function MapView() {
   const measured =
     measure === 'distance' ? formatDistance(measurePathDistanceKm(measurePts)) : measure === 'area' ? formatArea(measurePolygonAreaKm2(measurePts)) : ''
 
+  // Say what the map now shows whenever the view switches the layers, then fade out.
+  const VIEW_NAME: Record<string, string> = { overview: 'Overview', flooding: 'Flooding', damage: 'Damage', cutoff: 'Cut off', flowpath: 'Flood path' }
+  const [caption, setCaption] = useState<string | null>(null)
+  const firstView = useRef(true)
+  useEffect(() => {
+    if (firstView.current) {
+      firstView.current = false
+      return
+    }
+    const names = LAYERS.filter((l) => app.visible[l.id]).map((l) => l.label.toLowerCase())
+    setCaption(`${VIEW_NAME[app.view] ?? ''}: map shows ${names.join(', ')}`)
+    const t = setTimeout(() => setCaption(null), 4000)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [app.view])
+
   const drawHint =
     app.drawMode === 'box'
       ? 'Drag to draw the area. Esc cancels.'
@@ -590,12 +918,87 @@ export function MapView() {
     <div className='@container relative min-h-0 w-full flex-1'>
       <div ref={ref} className='h-full w-full' />
 
-      <div className='pointer-events-none absolute inset-x-3 top-3 z-10 flex items-start gap-2'>
+      {sweep && (
+        <div
+          className='pointer-events-none absolute inset-0 z-10 overflow-hidden'
+          style={{
+            clipPath: `inset(0 0 0 ${sweepPos}%)`,
+            WebkitClipPath: `inset(0 0 0 ${sweepPos}%)`,
+          }}
+        >
+          {/* MapLibre forces position: relative on its container, so it needs a sized wrapper. */}
+          <div ref={secondaryRef} className='h-full w-full' />
+        </div>
+      )}
+
+      {sweep && (
+        <>
+          <div
+            className='absolute inset-y-0 z-30 -ml-3 flex w-6 cursor-ew-resize justify-center'
+            style={{ left: `${sweepPos}%` }}
+            onPointerDown={(e) => {
+              const box = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect()
+              const move = (ev: PointerEvent) => setSweepPos(Math.min(99, Math.max(1, ((ev.clientX - box.left) / box.width) * 100)))
+              const up = () => {
+                window.removeEventListener('pointermove', move)
+                window.removeEventListener('pointerup', up)
+              }
+              window.addEventListener('pointermove', move)
+              window.addEventListener('pointerup', up)
+              e.preventDefault()
+            }}
+            role='slider'
+            aria-label='Before and after divider'
+            aria-valuenow={Math.round(sweepPos)}
+          >
+            <div className='h-full w-0.5 bg-white shadow-[0_0_8px_rgba(0,0,0,0.6)]' />
+            <div className='absolute top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-neutral-900 text-white shadow-lg'>
+              <ChevronsLeftRight className='size-4' />
+            </div>
+          </div>
+          <div className='pointer-events-none absolute top-14 inset-x-0 z-30 flex justify-between gap-2 px-3'>
+            <span className='rounded-md bg-neutral-900/85 px-2.5 py-1.5 text-xs text-white shadow'>
+              <b>Before</b> · {imgSet?.before.date ?? '—'}
+              <span className='block text-[0.6875rem] text-white/70'>{imgSet?.sensor}</span>
+            </span>
+            <span className='rounded-md bg-neutral-900/85 px-2.5 py-1.5 text-right text-xs text-white shadow'>
+              <b>After</b> · {imgSet?.after.date ?? '—'}
+              <span className='block text-[0.6875rem] text-white/70'>{imgSet?.sensor}</span>
+            </span>
+          </div>
+          <SweepPanel jobId={app.jobId} change={manifest.data?.change} opts={sweepOpts} setOpts={setSweepOpts} hasFlow={!!flowRef.current} />
+          <div className='absolute right-3 bottom-3 z-30 flex max-w-[calc(100%-17rem)] items-center gap-2 rounded-md bg-neutral-900/85 px-2.5 py-1.5 text-[0.6875rem] text-white/85 shadow'>
+            {manifest.data?.imagery?.kind === 'optical' && manifest.data?.imagery_radar && (
+              <div className='flex shrink-0 rounded border border-white/20 p-0.5'>
+                {(['optical', 'radar'] as const).map((k) => (
+                  <button
+                    key={k}
+                    type='button'
+                    onClick={() => setSweepKind(k)}
+                    className={`rounded px-1.5 py-0.5 font-medium ${sweepKind === k ? 'bg-white text-neutral-900' : 'text-white/80'}`}
+                  >
+                    {k === 'optical' ? 'Optical' : 'Radar'}
+                  </button>
+                ))}
+              </div>
+            )}
+            <span>
+              {imgSet?.kind === 'optical'
+                ? 'Natural colour. White patches are cloud; switch to radar to see through them.'
+                : 'Radar: dark = calm water or smooth ground, bright = rough ground or slopes facing the satellite.'}{' '}
+              Drag the divider; most ground looks the same because it did not change.
+            </span>
+          </div>
+        </>
+      )}
+
+
+      <div className='pointer-events-none absolute inset-x-3 top-3 z-40 flex items-start gap-2'>
         <div className='pointer-events-auto min-w-0 max-w-sm flex-1'>
           <MapSearch />
         </div>
         <div className='pointer-events-auto ml-auto shrink-0'>
-          <MapToolbar basemap={basemap} setBasemap={setBasemap} measure={measure} setMeasure={setMeasure} />
+          <MapToolbar basemap={basemap} setBasemap={setBasemap} measure={measure} setMeasure={setMeasure} sweep={sweep} setSweep={setSweep} sweepAvailable={!!manifest.data?.imagery} />
         </div>
       </div>
 
@@ -620,6 +1023,12 @@ export function MapView() {
         </div>
       )}
 
+      {caption && !drawHint && !sweep && (
+        <div className='pointer-events-none absolute top-16 left-1/2 z-20 max-w-[80%] -translate-x-1/2 rounded-md bg-neutral-900/90 px-3 py-1.5 text-center text-xs text-white shadow-lg'>
+          {caption}
+        </div>
+      )}
+
       {hover && (
         <div
           className='pointer-events-none absolute z-10 rounded border bg-background/95 px-1.5 py-0.5 text-[0.6875rem] font-medium shadow-sm'
@@ -635,7 +1044,7 @@ export function MapView() {
         </div>
       )}
 
-      <div className={app.mode === 'new' ? 'hidden' : 'absolute right-12 bottom-3 z-10 hidden @xl:block'}>
+      <div className={app.mode === 'new' || sweep ? 'hidden' : 'absolute right-12 bottom-3 z-10 hidden @xl:block'}>
         <Legend visible={app.visible} route={!!routeSettlement?.pathBefore.length} layers={LAYERS} />
       </div>
     </div>

@@ -58,6 +58,19 @@ export type Bridge = {
 }
 export type Hospital = { id: string; name: string; amenity: string; status: string; isolated: boolean; at: LngLat; raw: Raw }
 export type Facility = { id: string; name: string; type: string; hit: boolean; hazard: string; confidence: string; pMax: number | null; at: LngLat; raw: Raw }
+export type LandingZone = {
+  id: string
+  name: string
+  settlement: string
+  distanceM: number
+  elevationM: number
+  slopeDeg: number
+  areaM2: number
+  suitability: 'optimal' | 'viable'
+  status: string
+  at: LngLat
+  raw: Raw
+}
 export type Repair = {
   osmId: string
   name: string
@@ -218,6 +231,7 @@ export function useJobData(id: string | null) {
   const b = useGeo(id, done, 'bridges')
   const h = useGeo(id, done, 'hospitals')
   const bl = useGeo(id, done, 'buildings')
+  const lz = useGeo(id, done, 'hlz')
   const repairs = useQuery({
     queryKey: ['repairs', id],
     queryFn: () => fetch(fileUrl(id!, 'repairs.json')).then((r) => (r.ok ? (r.json() as Promise<Raw[]>) : [])),
@@ -263,6 +277,28 @@ export function useJobData(id: string | null) {
         .sort((x, y) => Number(y.hit) - Number(x.hit) || (y.pMax ?? 0) - (x.pMax ?? 0)),
     [bl.data]
   )
+  const landingZones = useMemo(
+    () =>
+      features(lz.data).map(
+        (f, i): LandingZone => {
+          const p = f.properties as Raw
+          return {
+            id: str(p.name) || `hlz-${i}`,
+            name: str(p.name) || 'Landing Zone',
+            settlement: str(p.settlement),
+            distanceM: num(p.distance_m) ?? 0,
+            elevationM: num(p.elevation_m) ?? 0,
+            slopeDeg: num(p.slope_deg) ?? 0,
+            areaM2: num(p.area_m2) ?? 0,
+            suitability: (str(p.suitability) as 'optimal' | 'viable') || 'viable',
+            status: str(p.status) || 'cleared',
+            at: first(f.geometry),
+            raw: p,
+          }
+        }
+      ),
+    [lz.data]
+  )
   const repairList = useMemo(
     () =>
       (repairs.data ?? []).map(
@@ -287,6 +323,7 @@ export function useJobData(id: string | null) {
     bridges,
     hospitals,
     facilities,
+    landingZones,
     repairs: repairList,
     loading: done && (s.isLoading || b.isLoading || h.isLoading),
   }

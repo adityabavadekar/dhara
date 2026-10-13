@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react'
-import { Bot, Copy, Waves, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Bot, Copy, MapPin, Waves, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useApp } from '@/context/app-state'
 import { distanceKm, fmtHours, fmtKm, inRing, jobAoiRing, num, parseBridge, parseHospital, parseSettlement, pct, str, useJobData } from '@/lib/job'
 import { GMapsLink } from '@/components/gmaps-link'
+import { ElevationProfile } from '@/components/elevation-profile'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/features/workspace/common'
 
@@ -48,18 +49,76 @@ export function SelectionCard() {
   let body: ReactNode = null
   let ask: string | null = null
 
-  if (s.kind === 'settlement') {
+  if (p.suitability && p.slope_deg != null) {
+    kicker = 'Possible helicopter landing area'
+    title = `Near ${str(p.settlement) || 'cut-off settlement'}`
+    badge = null
+    ask = `Which settlements near ${str(p.settlement)} have no road access?`
+    body = (
+      <>
+        <Line k='Distance to settlement' v={`${num(p.distance_m)} m`} />
+        <Line k='Ground slope' v={`${num(p.slope_deg)}°`} />
+        <Line k='Flat open area' v={`${num(p.area_m2)} m²`} />
+        <Line k='Ground elevation' v={`${num(p.elevation_m)} m`} />
+        <p className='mt-1.5 text-muted-foreground'>
+          Gentle, dry ground outside mapped flood and debris, from a 30 m elevation model. Trees, wires, buildings and soft
+          ground are not checked: confirm on site before use.
+        </p>
+      </>
+    )
+  } else if (s.kind === 'settlement') {
     const x = parseSettlement(p, s.lngLat)
     const broken = x.status === 'cut_off' || x.status === 'hospital_cut_off'
     kicker = x.place ? `Settlement · ${x.place}` : 'Settlement'
     title = x.name
     badge = x.status
     ask = `Why is ${x.name} classed as "${x.status.replaceAll('_', ' ')}", and what would reconnect it?`
+    const MEANS: Record<string, string> = {
+      cut_off: 'After the flood no mapped road or trail leads out of here to a town, a health facility or beyond the area.',
+      hospital_cut_off: 'Roads still lead out, but after the flood none of them reaches a hospital.',
+      detour: 'Still connected by road, but only by a longer route than before the flood.',
+      connected: 'Its usual road route to the hospital still works after the flood.',
+      no_baseline_route:
+        'The pre-flood map shows no road from here to a town or hospital, so road access cannot be judged. It is probably reached by unmapped foot trails.',
+      not_on_network: 'No mapped road comes near this place, so road access cannot be judged.',
+    }
     body = (
       <>
+        <p className='mb-1.5 leading-snug text-foreground/85'>{MEANS[x.status] ?? ''}</p>
         <Line k='Buildings within 500 m' v={x.buildings} />
-        {x.pCutOff != null && <Line k='Chance of no road out at all' v={pct(x.pCutOff)} />}
-        {x.hospital && <Line k='Nearest hospital' v={x.hospital} />}
+        {x.pCutOff != null && x.pathBefore.length > 0 && <Line k='Chance of no road out at all' v={pct(x.pCutOff)} />}
+        {x.hospital && x.pathBefore.length > 0 && (
+          <div className='flex items-center justify-between gap-2 py-0.5'>
+            <span className='text-muted-foreground'>Hospital by road</span>
+            <button
+              type='button'
+              className='flex items-center gap-1 font-medium text-primary hover:underline'
+              onClick={() => {
+                const route = !broken && x.pathAfter.length > 1 ? x.pathAfter : x.pathBefore
+                // Many OSM hospitals share a generic name ("Hospital"), so find the one at the end
+                // of this settlement's actual road route, not the first with the same name.
+                const end = route[route.length - 1]
+                const targetHosp = end
+                  ? d.hospitals.reduce<(typeof d.hospitals)[number] | undefined>(
+                      (best, h) => (!best || distanceKm(h.at, end) < distanceKm(best.at, end) ? h : best),
+                      undefined
+                    )
+                  : d.hospitals.find((h) => h.name === x.hospital)
+                app.select({
+                  kind: 'hospital',
+                  props: targetHosp ? targetHosp.raw : { name: x.hospital },
+                  lngLat: targetHosp ? targetHosp.at : (route[route.length - 1] ?? x.at),
+                  originLngLat: x.at,
+                  routePath: route,
+                })
+              }}
+            >
+              <span>{x.hospital}</span>
+              <ArrowRight className='size-3 shrink-0' />
+            </button>
+          </div>
+        )}
+        {x.pathBefore.length > 0 && (
         <div className='my-1.5 grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border'>
           <div className='bg-card p-2'>
             <div className='text-[0.625rem] text-muted-foreground'>Before</div>
@@ -78,8 +137,29 @@ export function SelectionCard() {
             )}
           </div>
         </div>
+        )}
         {x.breaks.length > 0 && <p className='text-muted-foreground'>Red marks on the map show where the pre-event route crosses flood or debris.</p>}
-        {!x.pathBefore.length && <p className='text-muted-foreground'>No mapped road route to a hospital.</p>}
+        {s.originLngLat && (
+          <Button
+            variant='outline'
+            size='sm'
+            className='mt-2 h-7 w-full gap-1.5 text-[0.6875rem]'
+            onClick={() => app.select({ kind: 'point', props: {}, lngLat: s.originLngLat! })}
+          >
+            <ArrowLeft className='size-3' />
+            <span>Back</span>
+          </Button>
+        )}
+        {app.jobId && ((!broken && x.pathAfter.length > 1) || x.pathBefore.length > 1) && (
+          <div className='mt-2.5'>
+            <ElevationProfile
+              jobId={app.jobId}
+              path={!broken && x.pathAfter.length > 1 ? x.pathAfter : x.pathBefore}
+              title={!broken && x.pathAfter.length > 1 ? 'Detour Route Elevation' : 'Hospital Route Elevation'}
+              subtitle='Topography along route from Copernicus DEM'
+            />
+          </div>
+        )}
       </>
     )
   } else if (s.kind === 'bridge') {
@@ -108,14 +188,53 @@ export function SelectionCard() {
     const h = parseHospital(p, s.lngLat)
     const served = d.settlements.filter((x) => x.hospital && x.hospital === h.name)
     const lost = served.filter((x) => x.status === 'cut_off' || x.status === 'hospital_cut_off')
-    kicker = h.amenity ? `Health · ${h.amenity}` : 'Health facility'
+    kicker = s.originLngLat ? 'Medical Evacuation Destination' : (h.amenity ? `Health · ${h.amenity}` : 'Health facility')
     title = h.name
     badge = h.isolated ? 'cut_off' : h.status
     ask = `Which settlements lost road access to ${h.name}?`
+    const distFromOrigin = s.originLngLat ? distanceKm(s.originLngLat, s.lngLat) : null
+    const routeCoords = s.routePath && s.routePath.length > 1 ? s.routePath : []
+
     body = (
       <>
+        {s.originLngLat && (
+          <div className='mb-2 rounded-md border border-primary/20 bg-primary/5 p-2'>
+            <div className='flex items-center justify-between text-[0.6875rem]'>
+              <span className='flex items-center gap-1 font-medium text-primary'>
+                <MapPin className='size-3' />
+                <span>From</span>
+              </span>
+              <span className='font-mono tabular-nums text-muted-foreground'>
+                {s.originLngLat[1].toFixed(4)}°N, {s.originLngLat[0].toFixed(4)}°E
+              </span>
+            </div>
+            <div className='mt-1 flex items-center justify-between text-xs'>
+              <span className='text-muted-foreground'>Straight-line distance</span>
+              <span className='font-semibold tabular-nums text-foreground'>{distFromOrigin?.toFixed(1)} km</span>
+            </div>
+            <Button
+              variant='outline'
+              size='sm'
+              className='mt-2 h-7 w-full gap-1.5 text-[0.6875rem]'
+              onClick={() => app.select({ kind: 'point', props: {}, lngLat: s.originLngLat! })}
+            >
+              <ArrowLeft className='size-3' />
+              <span>Back</span>
+            </Button>
+          </div>
+        )}
         <Line k='Nearest hospital for' v={`${served.length} settlements`} />
         <Line k='Of those, lost road access' v={lost.length} />
+        {app.jobId && routeCoords.length > 1 && (
+          <div className='mt-2.5'>
+            <ElevationProfile
+              jobId={app.jobId}
+              path={routeCoords}
+              title='Road route elevation'
+              subtitle='Topography from Copernicus DEM'
+            />
+          </div>
+        )}
       </>
     )
   } else if (s.kind === 'building' || s.kind === 'road') {
@@ -158,14 +277,15 @@ export function SelectionCard() {
         {ring && <Line k='Analysed area' v={inRing(s.lngLat, ring) ? 'Inside' : 'Outside'} />}
         {ns && (
           <div className='flex items-center justify-between gap-2 py-0.5'>
-            <span className='text-muted-foreground'>Nearest settlement</span>
+            <span className='text-muted-foreground'>Closest settlement</span>
             <button
               type='button'
-              className='flex min-w-0 items-center gap-1.5 font-medium hover:underline'
-              onClick={() => app.select({ kind: 'settlement', props: ns.x.raw, lngLat: ns.x.at })}
+              className='flex min-w-0 items-center gap-1.5 font-medium text-primary hover:underline'
+              onClick={() => app.select({ kind: 'settlement', props: ns.x.raw, lngLat: ns.x.at, originLngLat: s.lngLat })}
             >
               <span className='truncate'>{ns.x.name}</span>
               <span className='shrink-0 text-muted-foreground tabular-nums'>{ns.km.toFixed(1)} km</span>
+              <ArrowRight className='size-3 shrink-0' />
             </button>
           </div>
         )}
@@ -176,18 +296,19 @@ export function SelectionCard() {
         )}
         {nh && (
           <div className='flex items-center justify-between gap-2 py-0.5'>
-            <span className='text-muted-foreground'>Nearest hospital</span>
+            <span className='text-muted-foreground'>Closest hospital</span>
             <button
               type='button'
-              className='flex min-w-0 items-center gap-1.5 font-medium hover:underline'
-              onClick={() => app.select({ kind: 'hospital', props: nh.x.raw, lngLat: nh.x.at })}
+              className='flex min-w-0 items-center gap-1.5 font-medium text-primary hover:underline'
+              onClick={() => app.select({ kind: 'hospital', props: nh.x.raw, lngLat: nh.x.at, originLngLat: s.lngLat })}
             >
               <span className='truncate'>{nh.x.name}</span>
               <span className='shrink-0 text-muted-foreground tabular-nums'>{nh.km.toFixed(1)} km</span>
+              <ArrowRight className='size-3 shrink-0' />
             </button>
           </div>
         )}
-        {(ns || nh) && <p className='pt-1 text-[0.6875rem] text-muted-foreground'>Distances are straight-line, not by road.</p>}
+        {(ns || nh) && <p className='pt-1 text-[0.6875rem] text-muted-foreground'>Distances are straight-line. Whether a road gets there is the settlement's status: open it to see its road route.</p>}
       </>
     )
   }

@@ -7,7 +7,7 @@ It uses only Sentinel-1/2, Copernicus DEM, pre-event OSM, and Kuro Siwo/Sen1Floo
 - All network access goes through `src/dhara/adapters/` → `allowlist.guarded_request()`. Never call httpx/requests directly anywhere else.
 - `src/dhara/` must never read, import or mention `validation/` or any reference-map source (CEMS/EMSR, UNOSAT, GFM, OPERA DSWx/DIST, HOT/fAIr, WorldPop, WorldCover, JRC, MERIT, Overpass). `tests/test_compliance.py` enforces this.
 - ohsome timestamps must be ≤ `2026-07-27`.
-- Foundation-model weights stay behind `allow_foundation_weights` (default false).
+- ImageNet-pretrained encoder weights are allowed (organizer answer, 2026-10-13); the model must then also be scored on Sen1Floods11. Any other pretrained or foundation-model weights stay behind `allow_foundation_weights` (default false).
 
 ## Engineering rules
 - Python 3.12, `uv`. Lint and type-check with `uv run ruff check . && uv run ruff format --check . && uv run ty check`. Run tests with `uv run pytest`.

@@ -111,15 +111,17 @@ def _grow(cls: np.ndarray, k: int) -> np.ndarray:
     return out
 
 
-def _scalebar(ax, extent) -> None:
+def _scalebar(ax, extent, k: float = 1.0) -> None:
+    """Scale bar and north arrow. `k` = map units per ground metre (1 in UTM, 1/cos φ in 3857)."""
     left, right, bottom, top = extent
     width = right - left
-    target = width / 5
+    target = width / k / 5
     pow10 = 10 ** np.floor(np.log10(target))
     length = max(v for v in (1, 2, 5, 10) if v * pow10 <= target) * pow10
     x0, y0 = left + width * 0.04, bottom + (top - bottom) * 0.05
-    ax.plot([x0, x0 + length], [y0, y0], color="#0f172a", lw=2.5, solid_capstyle="butt", zorder=20)
     label = f"{length / 1000:g} km" if length >= 1000 else f"{length:g} m"
+    length *= k
+    ax.plot([x0, x0 + length], [y0, y0], color="#0f172a", lw=2.5, solid_capstyle="butt", zorder=20)
     ax.text(
         x0 + length / 2,
         y0 + (top - bottom) * 0.015,
@@ -336,4 +338,66 @@ def flowpath(L: Layers | None, fp_dir: Path) -> str:
     for _, r in sett.iterrows():
         _numbered(ax, r.geometry.x, r.geometry.y, int(r["order"]), "#7c3aed")
     _scalebar(ax, ext)
+    return _png(fig)
+
+
+def change_pair(job_dir: Path, half_km: float = 1.6) -> str | None:
+    """Before/after Sentinel-2 true colour, side by side, around the river station that widened
+    most, with the measured channel width on each date (white before, cyan after) and the station
+    ranks of the report's table. Drawn in EPSG:3857, the CRS of the web images; the scale bar is
+    corrected for latitude. None when the job has no optical pair or no stations."""
+    import matplotlib.image as mpimg
+    from pyproj import Transformer
+
+    m = json.loads((job_dir / "layers.json").read_text())
+    img = m.get("imagery")
+    path = job_dir / "web" / "change.geojson"
+    if not img or img.get("kind") != "optical" or not path.exists():
+        return None
+    g = gpd.read_file(path).to_crs(3857)
+    st = g[g["kind"] == "station"].sort_values("width_change_m", ascending=False).head(8)
+    if not len(st):
+        return None
+    c = img["before"]["coordinates"]  # EPSG:4326 corners: TL, TR, BR, BL
+    t = Transformer.from_crs(4326, 3857, always_xy=True)
+    x0, y1 = t.transform(*c[0])
+    x1, y0 = t.transform(*c[2])
+    lat = t.transform(st.geometry.iloc[0].x, st.geometry.iloc[0].y, direction="INVERSE")[1]
+    k = 1 / np.cos(np.radians(lat))
+    cx, cy = st.geometry.iloc[0].x, st.geometry.iloc[0].y
+    h = half_km * 1000 * k
+    win = (cx - h, cx + h, cy - h, cy + h)
+    fig, axes = plt.subplots(1, 2, figsize=(7.2, 3.6))
+    for ax, side, color in ((axes[0], "before", "#ffffff"), (axes[1], "after", "#22d3ee")):
+        ax.imshow(mpimg.imread(job_dir / img[side]["url"]), extent=(x0, x1, y0, y1))
+        lines = g[g["kind"] == f"width_{side}"]
+        lines.plot(ax=ax, color="#0f172a", linewidth=4.4, zorder=3)
+        lines.plot(ax=ax, color=color, linewidth=2.4, zorder=4)
+        for i, (_, r) in enumerate(st.iterrows(), start=1):
+            x, y = r.geometry.x, r.geometry.y
+            if win[0] < x < win[1] and win[2] < y < win[3]:
+                _numbered(ax, x, y, i, "#0f172a", square=True)
+                ax.annotate(
+                    f"{int(r[f'width_{side}_m'])} m",
+                    (x, y),
+                    xytext=(9, -3),
+                    textcoords="offset points",
+                    fontsize=6.5,
+                    color=color if side == "after" else "white",
+                    zorder=31,
+                    annotation_clip=True,
+                    bbox={
+                        "boxstyle": "round,pad=0.15",
+                        "fc": "#0f172a",
+                        "ec": "none",
+                        "alpha": 0.8,
+                    },
+                )
+        ax.set_xlim(win[0], win[1])
+        ax.set_ylim(win[2], win[3])
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_title(img[side]["date"], fontsize=8, loc="left", color="#0f172a")
+    _scalebar(axes[0], win, k)
+    fig.tight_layout(w_pad=0.5)
     return _png(fig)

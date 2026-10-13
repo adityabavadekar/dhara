@@ -36,9 +36,13 @@ export const VIEW_LAYERS: Record<View, Visible> = {
 }
 
 /** What the user clicked, on the map or in a list. Coordinates are EPSG:4326. */
-export type Selection =
-  | { kind: 'settlement' | 'bridge' | 'hospital' | 'building' | 'road' | 'flow-settlement'; props: Record<string, unknown>; lngLat: [number, number] }
-  | { kind: 'point'; props: Record<string, unknown>; lngLat: [number, number] }
+export type Selection = {
+  kind: 'settlement' | 'bridge' | 'hospital' | 'building' | 'road' | 'flow-settlement' | 'point'
+  props: Record<string, unknown>
+  lngLat: [number, number]
+  originLngLat?: [number, number]
+  routePath?: [number, number][]
+}
 
 type State = {
   mode: Mode
@@ -99,6 +103,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         setViewState(v)
         setVisible(VIEW_LAYERS[v])
         setDrawMode('none')
+        setSelection(null) // a highlight from another view would look like a random selection
       },
       aoi,
       setAoi,

@@ -55,10 +55,11 @@ def load_model(model_dir: Path = MODEL_DIR) -> Model | None:
         return None
     card = json.loads(card_path.read_text())
     weights = str(card.get("encoder_weights", "random init"))
-    if weights != "random init" and not get_settings().allow_foundation_weights:
+    # ImageNet encoders are allowed (organizer answer, 2026-10-13); anything else is a gray area.
+    if weights not in ("random init", "imagenet") and not get_settings().allow_foundation_weights:
         raise RuntimeError(
-            f"Model uses pretrained encoder weights ({weights}); a gray area that is disabled by "
-            "default (set ALLOW_FOUNDATION_WEIGHTS=true to allow)."
+            f"Model uses pretrained encoder weights ({weights}); only random init or ImageNet are "
+            "allowed by default (set ALLOW_FOUNDATION_WEIGHTS=true to allow others)."
         )
     import onnxruntime as ort
 

@@ -21,6 +21,7 @@ HUGE = {
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DHARA_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ASSISTANT_LLM", "off")
     get_settings.cache_clear()
     from dhara.api.app import app
 
@@ -110,3 +111,34 @@ def test_model_metrics_come_from_training_outputs(client):
     assert set(res) == {"deployed", "runs"}
     for run in res["runs"]:
         assert set(run["test"]) >= {"f1_flood", "iou_flood"}
+
+
+def test_job_elevation_profile(client):
+    from dhara.api.app import store
+    from dhara.config import get_settings
+
+    jid = "proftest123"
+    d = get_settings().jobs_dir / jid
+    d.mkdir(parents=True, exist_ok=True)
+    mock_prof = {
+        "points": [
+            {"dist_km": 0.0, "elevation_m": 1200.0, "lng": 85.3, "lat": 28.1, "slope_pct": 0.0},
+            {"dist_km": 1.0, "elevation_m": 1400.0, "lng": 85.31, "lat": 28.11, "slope_pct": 20.0},
+        ],
+        "summary": {
+            "total_distance_km": 1.0,
+            "min_elevation_m": 1200,
+            "max_elevation_m": 1400,
+            "elevation_gain_m": 200,
+            "elevation_loss_m": 0,
+            "max_slope_pct": 20.0,
+            "avg_slope_pct": 20.0,
+        },
+    }
+    (d / "profile.json").write_text(json.dumps(mock_prof))
+    store().create(jid, "flowpath", {})
+
+    resp = client.post(f"/api/jobs/{jid}/profile", json={"path": [], "step_m": 30.0})
+    assert resp.status_code == 200
+    assert resp.json()["summary"]["total_distance_km"] == 1.0
+    assert len(resp.json()["points"]) == 2

@@ -7,10 +7,11 @@ import { api } from '@/lib/api'
 import { num, str, useJob } from '@/lib/job'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { ElevationProfile } from '@/components/elevation-profile'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
-import { Empty, List, Note, Row, Section } from './common'
+import { Empty, List, Note, Row, Section, ViewIntro } from './common'
 
 type Meta = {
   length_km?: number
@@ -52,6 +53,15 @@ export function FlowPath() {
 
   return (
     <div className='space-y-5 p-3'>
+      <ViewIntro
+        question='Where would a surge go?'
+        answer={
+          <>
+            Pick a point upstream. The path follows the steepest way downhill on the Copernicus DEM, along the valley floor
+            (not along roads), and lists the settlements beside it in order.
+          </>
+        }
+      />
       <Section title='Trace a flood path'>
         <p className='text-[0.6875rem] leading-relaxed text-muted-foreground'>
           Pick a point upstream, such as a glacier lake or landslide dam. The path follows the steepest descent on the Copernicus DEM
@@ -101,6 +111,16 @@ export function FlowPath() {
             <Cell label='Drop' value={meta.drop_m != null ? `${Math.round(meta.drop_m)} m` : '—'} />
             <Cell label='Stopped at' value={meta.stopped_because ?? '—'} />
           </div>
+
+          {id && (
+            <ElevationProfile
+              jobId={id}
+              path={[]}
+              title='Debris Surge Elevation Profile'
+              subtitle='Steepest-descent river bed cross-section'
+            />
+          )}
+
           {rows.length === 0 ? (
             <Empty>No mapped settlement lies within {corr} m of this path.</Empty>
           ) : (

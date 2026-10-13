@@ -148,6 +148,32 @@ LABELS = {
         "h_access": "Road access",
         "cut_note": "Cut off means no road or trail in the pre-event map still links the settlement to a town, a health facility or the edge of the area. Travel times use typical speeds per road type.",
         "p4_title": "Flood paths traced in this area",
+        "ch_title": "What changed between the two images",
+        "ch_intro_a": "Sentinel-2 natural-colour images of",
+        "ch_intro_b": "and",
+        "ch_intro_c": "Measured only where both images are cloud-free:",
+        "ch_intro_d": "of the area. Everywhere else is not measured, not unchanged.",
+        "ch_lg_before": "Channel width, before",
+        "ch_lg_after": "Channel width, after",
+        "ch_lg_rank": "Station rank in the table",
+        "ch_map_note": "Around the river station that widened most. Each line is the measured channel across the river on that date.",
+        "ch_t_measures": "Measured change",
+        "ch_c_measure": "Measure",
+        "ch_c_before": "Before",
+        "ch_c_after": "After",
+        "ch_c_change": "Change",
+        "ch_width": "River channel width",
+        "ch_width_note_a": "median of",
+        "ch_width_note_b": "stations",
+        "ch_water": "Open water",
+        "ch_channel": "Bare channel (water, mud, sediment)",
+        "ch_widened": "Stations widened by at least",
+        "ch_shift": "River moved sideways, at most",
+        "ch_median": "median",
+        "ch_t_stations": "Stations that widened most",
+        "ch_s_moved": "Moved (m)",
+        "ch_none": "No river station was measurable on both dates.",
+        "ch_caveat": "Stations sit along the main rivers; a width is the run of water or bare ground crossing the river line. Where plants partly cover new sediment the after width is an underestimate. Both dates bracket the event date but the change may have happened at any time between them. Thresholds are uncalibrated. People displaced: not measured, because no population data is used; buildings touched (see hazard and damage) is the closest measure.",
         "fp_note": "Steepest-descent paths on the Copernicus DEM from points picked upstream. Arrival times use an assumed slope-to-speed rule that has not been calibrated: use them to order warnings, not as forecasts.",
         "fp_trace": "Trace",
         "fp_start": "Start",
@@ -309,6 +335,32 @@ LABELS = {
         "h_access": "सडक पहुँच",
         "cut_note": "सम्पर्कविहीन भनेको घटनाअघिको नक्साका कुनै सडक वा मार्गले बस्तीलाई सहर, स्वास्थ्य संस्था वा क्षेत्रको किनारासँग नजोड्नु हो।",
         "p4_title": "यस क्षेत्रमा कोरिएका बाढी मार्ग",
+        "ch_title": "दुई तस्बिरबीच के बदलियो",
+        "ch_intro_a": "Sentinel-2 प्राकृतिक-रङ तस्बिरहरू:",
+        "ch_intro_b": "र",
+        "ch_intro_c": "दुवै तस्बिरमा बादल नभएको ठाउँमा मात्र नापिएको:",
+        "ch_intro_d": "क्षेत्र। बाँकी ठाउँ नापिएको छैन, अपरिवर्तित भन्ने होइन।",
+        "ch_lg_before": "च्यानलको चौडाइ, पहिले",
+        "ch_lg_after": "च्यानलको चौडाइ, पछि",
+        "ch_lg_rank": "तालिकामा स्टेसनको क्रम",
+        "ch_map_note": "सबैभन्दा बढी फराकिलो भएको नदी स्टेसन वरिपरि। प्रत्येक रेखा त्यस मितिमा नदी पारि नापिएको च्यानल हो।",
+        "ch_t_measures": "नापिएको परिवर्तन",
+        "ch_c_measure": "मापन",
+        "ch_c_before": "पहिले",
+        "ch_c_after": "पछि",
+        "ch_c_change": "परिवर्तन",
+        "ch_width": "नदी च्यानलको चौडाइ",
+        "ch_width_note_a": "मध्यिका,",
+        "ch_width_note_b": "स्टेसन",
+        "ch_water": "खुला पानी",
+        "ch_channel": "खाली च्यानल (पानी, लेदो, बालुवा)",
+        "ch_widened": "कम्तीमा यति फराकिलो भएका स्टेसन",
+        "ch_shift": "नदी छेउतिर सरेको, बढीमा",
+        "ch_median": "मध्यिका",
+        "ch_t_stations": "सबैभन्दा फराकिलो भएका स्टेसन",
+        "ch_s_moved": "सरेको (मि.)",
+        "ch_none": "दुवै मितिमा नाप्न मिल्ने कुनै नदी स्टेसन भेटिएन।",
+        "ch_caveat": "स्टेसनहरू मुख्य नदीमा छन्; चौडाइ भनेको नदी रेखा पार गर्ने पानी वा खाली जमिनको लम्बाइ हो। नयाँ लेदोमा बिरुवा भएमा पछिको चौडाइ कम देखिन्छ। परिवर्तन दुई मितिबीच जुनसुकै बेला भएको हुन सक्छ। सीमाहरू क्यालिब्रेट गरिएका छैनन्। विस्थापित मानिस: नापिएको छैन, किनकि जनसंख्या तथ्याङ्क प्रयोग गरिएको छैन; प्रभावित भवन (प्रकोप तथा क्षति खण्ड हेर्नुहोस्) नजिकको मापन हो।",
         "fp_note": "माथिल्लो बिन्दुबाट Copernicus DEM मा सबैभन्दा भिरालो बाटो। पुग्ने समय अनुमानित मात्र हो, पूर्वानुमान होइन।",
         "fp_trace": "मार्ग",
         "fp_start": "सुरु",
@@ -363,6 +415,7 @@ def _maps(job_dir: Path, f: Facts) -> dict[str, str | list[str] | None]:
         "zoom": None,
         "access": None,
         "flow": [],
+        "change": None,
     }
     try:
         L = maps.load(job_dir)
@@ -377,6 +430,8 @@ def _maps(job_dir: Path, f: Facts) -> dict[str, str | list[str] | None]:
             out["zoom"] = maps.hazard_zoom(L, w, br)
     with contextlib.suppress(Exception):
         out["access"] = maps.access(L, cut, rep)
+    with contextlib.suppress(Exception):
+        out["change"] = maps.change_pair(job_dir)
     flows: list[str] = []
     for name in f.ids.get("flowpaths", []):
         try:
@@ -454,6 +509,16 @@ def render(
         ),
         "ml_unet_kurosiwo": ("Segmentation model (Kuro Siwo)", "खण्डीकरण मोडेल (Kuro Siwo)"),
         "s2_indices": ("Optical indices", "अप्टिकल सूचक"),
+        "s2_mndwi": ("Optical: new water", "अप्टिकल: नयाँ पानी"),
+        "s2_ndvi_bsi": ("Optical: plant loss and bare ground", "अप्टिकल: वनस्पति क्षति र खाली जमिन"),
+        "s1_zscore_change": (
+            "Radar against several earlier dates: debris and scour",
+            "धेरै अघिल्ला मितिसँग राडार तुलना: लेदो तथा कटान",
+        ),
+        "s1_zscore_water": (
+            "Radar against several earlier dates: new water",
+            "धेरै अघिल्ला मितिसँग राडार तुलना: नयाँ पानी",
+        ),
     }
     member_names = [
         members.get(m.strip(), (m.strip(), m.strip()))[1 if lang == "ne" else 0]

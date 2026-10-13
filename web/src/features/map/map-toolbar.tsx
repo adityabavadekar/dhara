@@ -1,4 +1,4 @@
-import { Layers3, Map as MapIcon, Ruler } from 'lucide-react'
+import { ChevronsLeftRight, Layers3, Map as MapIcon, Ruler } from 'lucide-react'
 import { LAYERS, useApp } from '@/context/app-state'
 import { Button } from '@/components/ui/button'
 import {
@@ -24,11 +24,17 @@ export function MapToolbar({
   setBasemap,
   measure,
   setMeasure,
+  sweep,
+  sweepAvailable,
+  setSweep,
 }: {
   basemap: Basemap
   setBasemap: (b: Basemap) => void
   measure: MeasureMode
   setMeasure: (m: MeasureMode) => void
+  sweep: boolean
+  sweepAvailable: boolean
+  setSweep: (s: boolean) => void
 }) {
   const app = useApp()
   const groups = [...new Set(LAYERS.map((l) => l.group))]
@@ -73,6 +79,17 @@ export function MapToolbar({
           </DropdownMenuRadioGroup>
         </DropdownMenuContent>
       </DropdownMenu>
+      <Button
+        variant={sweep ? 'secondary' : 'ghost'}
+        size='sm'
+        className='h-8 gap-1.5 px-2.5 text-xs'
+        onClick={() => setSweep(!sweep)}
+        disabled={!sweepAvailable}
+        title={!sweepAvailable ? 'No before/after imagery for this analysis' : sweep ? 'Exit before/after' : 'Compare satellite images from before and after the event'}
+        aria-label='Swipe comparison'
+      >
+        <ChevronsLeftRight className='size-3.5' /> <span className='hidden @2xl:inline'>Before / after</span>
+      </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant={measure === 'none' ? 'ghost' : 'secondary'} size='sm' className='h-8 gap-1.5 px-2.5 text-xs' aria-label='Measure'>

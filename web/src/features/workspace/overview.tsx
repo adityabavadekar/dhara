@@ -1,5 +1,4 @@
-import type { ReactNode } from 'react'
-import { ArrowRight, Building2, Download, FileText, Route, Waves } from 'lucide-react'
+import { ArrowRight, Download, FileText } from 'lucide-react'
 import { useApp, type View } from '@/context/app-state'
 import { apiUrl } from '@/lib/api'
 import { STATUS_COLOR, type useJobData } from '@/lib/job'
@@ -8,44 +7,66 @@ import { Dot, List, Note, Row, Section, Stack, StatusBadge } from './common'
 
 type Data = ReturnType<typeof useJobData>
 
-function Answer({
-  n,
-  question,
+function Tile({
+  tag,
   view,
-  icon,
-  children,
+  label,
+  value,
+  unit,
+  of,
+  tone,
+  sub,
+  bar,
 }: {
-  n: number
-  question: string
+  tag: string
   view: View
-  icon: ReactNode
-  children: ReactNode
+  label: string
+  value: string | null
+  unit?: string
+  of?: string | null
+  tone?: string
+  sub: string
+  bar?: { value: number; color: string; label: string }[]
 }) {
   const app = useApp()
   return (
     <button
       type='button'
       onClick={() => app.setView(view)}
-      className='group block w-full rounded-lg border bg-card p-3 text-left transition-colors hover:border-foreground/20 hover:bg-muted/30'
+      className='group min-w-0 border-b border-r p-3 text-left transition-colors even:border-r-0 hover:bg-muted/40 [&:nth-child(n+3)]:border-b-0'
     >
-      <div className='mb-2.5 flex items-center gap-2'>
-        <span className='flex size-5.5 items-center justify-center rounded-md bg-muted text-foreground/90 shrink-0'>{icon}</span>
-        <span className='text-xs font-semibold text-foreground tracking-tight'>
-          {n}. {question}
+      <div className='flex items-center justify-between gap-1'>
+        <span className='truncate text-xs font-medium text-foreground/80'>{label}</span>
+        <span className='flex shrink-0 items-center gap-0.5 text-[0.625rem] font-semibold text-muted-foreground uppercase group-hover:text-foreground'>
+          {tag} <ArrowRight className='size-3' />
         </span>
-        <ArrowRight className='ml-auto size-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100' />
       </div>
-      {children}
+      <div className='mt-1 flex items-baseline gap-1'>
+        <span className={`text-2xl font-semibold tabular-nums tracking-tight ${tone ?? ''}`}>{value ?? '—'}</span>
+        {unit && value != null && <span className='text-sm text-muted-foreground'>{unit}</span>}
+        {of && <span className='text-sm text-muted-foreground'>of {of}</span>}
+      </div>
+      {bar && (
+        <div className='mt-1.5'>
+          <Stack parts={bar} />
+        </div>
+      )}
+      <div className='mt-1 text-xs leading-snug text-foreground/70'>{sub}</div>
     </button>
   )
 }
 
-const Big = ({ v, unit, tone }: { v: string | null; unit?: string; tone?: string }) => (
-  <span className={`text-2xl font-semibold tabular-nums tracking-tight ${tone ?? ''}`}>
-    {v ?? '—'}
-    {unit && v != null && <span className='ml-1 text-sm font-normal text-muted-foreground'>{unit}</span>}
-  </span>
-)
+function Mini({ label, value, sub }: { label: string; value: string | null; sub?: string }) {
+  return (
+    <div className='min-w-0'>
+      <div className='truncate text-[0.6875rem] text-foreground/70'>{label}</div>
+      <div className='text-base font-semibold tabular-nums'>
+        {value ?? '—'}
+        {sub && <span className='ml-1 text-xs font-normal text-muted-foreground'>{sub}</span>}
+      </div>
+    </div>
+  )
+}
 
 export function Overview({ d }: { d: Data }) {
   const app = useApp()
@@ -57,80 +78,70 @@ export function Overview({ d }: { d: Data }) {
 
   return (
     <div className='space-y-5 p-3'>
-      <div className='space-y-2'>
-        <Answer n={1} question='Where did the flood hit?' view='flooding' icon={<Waves className='size-3.5' />}>
-          <div className='flex items-baseline gap-4'>
-            <div>
-              <Big v={t('area_flood_km2')} unit='km²' />
-              <div className='text-xs text-muted-foreground'>new water</div>
-            </div>
-            <div>
-              <Big v={t('area_debris_km2')} unit='km²' />
-              <div className='text-xs text-muted-foreground'>debris and scour</div>
-            </div>
-          </div>
-          <div className='mt-2.5'>
-            <Stack
-              parts={[
-                { value: n('area_flood_km2') ?? 0, color: '#2563eb', label: 'New water' },
-                { value: n('area_debris_km2') ?? 0, color: '#c27803', label: 'Debris' },
-                { value: n('area_not_observable_km2') ?? 0, color: '#a8a29e', label: 'Not observable' },
-              ]}
-            />
-          </div>
-          <p className='mt-1.5 text-xs text-muted-foreground leading-relaxed'>
-            {(n('area_not_observable_km2') ?? 0) >= 0.01 ? (
-              <>
-                {t('area_not_observable_km2')} km² of the {t('aoi_area_km2') ?? '—'} km² area was hidden from the radar and is not known to be
-                safe.
-              </>
-            ) : (
-              <>All of the {t('aoi_area_km2') ?? '—'} km² area was visible to the radar.</>
-            )}
-          </p>
-        </Answer>
-
-        <Answer n={2} question='What was damaged?' view='damage' icon={<Building2 className='size-3.5' />}>
-          <div className='grid grid-cols-3 gap-2'>
-            <div>
-              <Big v={t('buildings_hit')} tone='text-amber-700 dark:text-amber-400' />
-              <div className='text-xs text-muted-foreground'>of {t('buildings_total') ?? '—'} buildings</div>
-            </div>
-            <div>
-              <Big v={t('network_failed_km')} unit='km' />
-              <div className='text-xs text-muted-foreground'>road impassable</div>
-            </div>
-            <div>
-              <Big v={t('bridges_lost')} tone={(n('bridges_lost') ?? 0) > 0 ? 'text-red-700 dark:text-red-400' : ''} />
-              <div className='text-xs text-muted-foreground'>of {t('bridges_total') ?? '—'} bridges lost</div>
-            </div>
-          </div>
-          {(n('bridges_at_risk') ?? 0) > 0 && (
-            <p className='mt-1.5 text-xs text-muted-foreground'>{t('bridges_at_risk')} more bridges at risk.</p>
+      <div className='overflow-hidden rounded-lg border bg-card'>
+        <div className='grid grid-cols-2'>
+          <Tile
+            tag='Access'
+            view='cutoff'
+            label='No road out'
+            value={t('settlements_cut_off')}
+            of={t('settlements_total')}
+            tone={(n('settlements_cut_off') ?? 0) > 0 ? 'text-red-700 dark:text-red-400' : ''}
+            sub={`communities · ${t('settlements_hospital_cut_off') ?? '—'} others can't reach a hospital`}
+          />
+          <Tile
+            tag='Access'
+            view='cutoff'
+            label='Nearby buildings'
+            value={t('buildings_in_cut_off')}
+            sub={`within ${t('exposure_radius_m') ?? '—'} m · no population data`}
+          />
+          <Tile
+            tag='Ground'
+            view='flooding'
+            label='Debris and water'
+            value={t('area_debris_km2')}
+            unit='km²'
+            sub={`debris and scour · ${t('area_flood_km2') ?? '—'} km² new water`}
+            bar={[
+              { value: n('area_debris_km2') ?? 0, color: '#c27803', label: 'Debris' },
+              { value: n('area_flood_km2') ?? 0, color: '#2563eb', label: 'New water' },
+            ]}
+          />
+          <Tile
+            tag='Assets'
+            view='damage'
+            label='Buildings touched'
+            value={t('buildings_hit')}
+            of={t('buildings_total')}
+            tone='text-amber-700 dark:text-amber-400'
+            sub='overlap mapped debris or water'
+          />
+        </div>
+        <button
+          type='button'
+          onClick={() => app.setView('damage')}
+          className='grid w-full grid-cols-3 gap-2 border-t px-3 py-2.5 text-left hover:bg-muted/40'
+        >
+          <Mini label='Impassable road' value={t('network_failed_km') != null ? `${t('network_failed_km')} km` : null} />
+          <Mini
+            label='Bridges washed out'
+            value={t('bridges_lost')}
+            sub={(n('bridges_at_risk') ?? 0) > 0 ? `+${t('bridges_at_risk')} unsure` : undefined}
+          />
+          <Mini label='Clinics isolated' value={t('hospitals_isolated')} sub={t('hospitals_total') ? `of ${t('hospitals_total')}` : undefined} />
+        </button>
+        <div className='border-t bg-muted/30 px-3 py-2 text-xs leading-relaxed text-foreground/80'>
+          {(n('area_not_observable_km2') ?? 0) >= 0.01 ? (
+            <>
+              <b>{t('area_not_observable_km2')} km²</b> of the {t('aoi_area_km2') ?? '—'} km² area was out of the radar's view: unknown,
+              not safe.{' '}
+            </>
+          ) : (
+            <>The radar saw the whole {t('aoi_area_km2') ?? '—'} km² area. </>
           )}
-        </Answer>
-
-        <Answer n={3} question='Who is cut off?' view='cutoff' icon={<Route className='size-3.5' />}>
-          <div className='flex items-baseline gap-4'>
-            <div>
-              <Big v={t('settlements_cut_off')} tone={(n('settlements_cut_off') ?? 0) > 0 ? 'text-red-700 dark:text-red-400' : ''} />
-              <div className='text-xs text-muted-foreground'>of {t('settlements_total') ?? '—'} settlements cut off</div>
-            </div>
-            <div>
-              <Big v={t('settlements_hospital_cut_off')} />
-              <div className='text-xs text-muted-foreground'>lost hospital access</div>
-            </div>
-            <div>
-              <Big v={t('settlements_detour')} />
-              <div className='text-xs text-muted-foreground'>longer route</div>
-            </div>
-          </div>
-          {(n('buildings_in_cut_off') ?? 0) > 0 && (
-            <p className='mt-1.5 text-[0.6875rem] text-muted-foreground'>
-              {t('buildings_in_cut_off')} buildings within {t('exposure_radius_m') ?? '—'} m of cut-off settlements.
-            </p>
-          )}
-        </Answer>
+          These are lower bounds: places with nothing mapped may still be affected.
+        </div>
       </div>
 
       <Section title='Act on first' aside={urgent.length ? `${urgent.length} settlements` : undefined}>

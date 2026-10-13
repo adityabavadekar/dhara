@@ -5,6 +5,7 @@ Jobs run in an in-process thread pool (the pipeline is I/O- and NumPy/GDAL-bound
 DuckDB. All geometry crossing the API is EPSG:4326 GeoJSON; all times are ISO 8601 UTC (…Z).
 """
 
+import contextlib
 import io
 import json
 import traceback
@@ -58,9 +59,36 @@ state: dict[str, Any] = {}
 
 
 def _resync_facts(store: Store, jobs_dir: Path) -> None:
-    """Load each job's facts.json into the store, so a re-rendered sitrep and the API agree."""
+    """Load each job's facts.json into the store, so a re-rendered sitrep and the API agree.
+
+    Finished analyses made outside the API (for example with the CLI) are registered as done,
+    so they appear in the job list."""
     if not jobs_dir.exists():
         return
+
+    def flat(req: dict) -> dict:
+        # Provenance records the AOI as {"geojson": polygon}; the API and UI use the polygon.
+        aoi = req.get("aoi")
+        return {**req, "aoi": aoi["geojson"]} if isinstance(aoi, dict) and "geojson" in aoi else req
+
+    for d in jobs_dir.iterdir():
+        row = store.get(d.name)
+        if row is not None:
+            req = row.get("request") or {}
+            if isinstance(req, dict) and flat(req) is not req:
+                store.update(d.name, request=flat(req))
+            continue
+        if (d / "layers.json").exists() and (d / "summary.json").exists():
+            with contextlib.suppress(Exception):
+                prov = json.loads((d / "provenance.json").read_text())
+                store.create(d.name, "analysis", flat(prov.get("inputs", {})))
+                store.update(
+                    d.name,
+                    status="done",
+                    stage="done",
+                    progress=1.0,
+                    summary=json.loads((d / "summary.json").read_text()),
+                )
     for d in jobs_dir.iterdir():
         f = d / "facts.json"
         if f.exists() and store.get(d.name) is not None:
@@ -295,6 +323,23 @@ def get_job(job_id: str) -> JobOut:
 @app.get("/api/jobs/{job_id}/facts")
 def job_facts(job_id: str) -> list[dict]:
     return store().facts(job_id)
+
+
+class ProfileRequest(BaseModel):
+    path: list[list[float]] = Field(description="List of [lng, lat] coordinates in EPSG:4326")
+    step_m: float = Field(default=30.0, description="Sampling step in meters")
+
+
+@app.post("/api/jobs/{job_id}/profile")
+def get_elevation_profile(job_id: str, req: ProfileRequest):
+    """Elevation profile along a route (EPSG:4326), sampled from Copernicus DEM GLO-30 around
+    the route itself, so routes that leave the analysis area are covered too."""
+    d = _job_dir(job_id)
+    if (not req.path or len(req.path) < 2) and (d / "profile.json").exists():
+        return json.loads((d / "profile.json").read_text())
+    from dhara.terrain.profile import sample_profile
+
+    return sample_profile(req.path, step_m=req.step_m)
 
 
 def _job_dir(job_id: str) -> Path:

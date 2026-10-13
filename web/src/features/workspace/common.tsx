@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { STATUS_COLOR, STATUS_LABEL } from '@/lib/job'
+import { LAYERS, useApp, type LayerId } from '@/context/app-state'
 import { cn } from '@/lib/utils'
 import { GMapsLink } from '@/components/gmaps-link'
 
@@ -124,5 +125,42 @@ export function Stack({ parts }: { parts: { value: number; color: string; label:
           <span key={p.label} title={p.label} style={{ flexGrow: p.value, background: p.color }} />
         ))}
     </div>
+  )
+}
+
+/** The top of every detail view: the question, its answer in a sentence, and what the map shows. */
+export function ViewIntro({ question, answer }: { question: string; answer: ReactNode }) {
+  const app = useApp()
+  const shown = LAYERS.filter((l) => app.visible[l.id as LayerId])
+  return (
+    <div className='space-y-2 rounded-lg border bg-muted/30 p-3'>
+      <div className='text-[0.6875rem] font-semibold tracking-wide text-muted-foreground uppercase'>{question}</div>
+      <div className='text-sm leading-snug text-foreground'>{answer}</div>
+      <div className='flex flex-wrap items-center gap-1 pt-0.5'>
+        <span className='mr-0.5 text-[0.6875rem] text-muted-foreground'>On the map:</span>
+        {shown.map((l) => (
+          <span key={l.id} className='inline-flex items-center gap-1 rounded border bg-background px-1.5 py-0.5 text-[0.6875rem]'>
+            <span className='size-2 rounded-[2px]' style={{ background: l.color }} />
+            {l.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** Renders the first `n` items, with a button to show the rest. */
+export function ShowMore<T>({ items, n = 6, render }: { items: T[]; n?: number; render: (item: T, i: number) => ReactNode }) {
+  const [all, setAll] = useState(false)
+  const shown = all ? items : items.slice(0, n)
+  return (
+    <>
+      <List>{shown.map(render)}</List>
+      {items.length > n && (
+        <button type='button' className='text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline' onClick={() => setAll((v) => !v)}>
+          {all ? 'Show fewer' : `Show all ${items.length}`}
+        </button>
+      )}
+    </>
   )
 }

@@ -12,6 +12,8 @@ from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 
+from dhara.damage.change import WIDENED_M
+
 DEVANAGARI = str.maketrans("0123456789", "०१२३४५६७८९")
 ASCII = str.maketrans("०१२३४५६७८९", "0123456789")
 
@@ -375,7 +377,68 @@ def build(job_dir: Path) -> Facts:
     f.tables["facilities_hit"] = fac
 
     _flowpaths(f, job_dir, prov)
+    _change(f, job_dir)
     return f
+
+
+def _signed(v: float, decimals: int = 0) -> str:
+    return ("+" if v >= 0 else "−") + fmt_num(abs(v), decimals)
+
+
+def _change(f: Facts, job_dir: Path) -> None:
+    """Measured before/after change (dhara.damage.change, via layers.json and web/change.geojson).
+    Nothing is added when the job has no cloud-free optical pair."""
+    lj = job_dir / "layers.json"
+    c = json.loads(lj.read_text()).get("change") if lj.exists() else None
+    if not c:
+        return
+    src = "layers.json (damage.change)"
+    f.add("change_before_day", c["before_day"], source=src)
+    f.add("change_after_day", c["after_day"], source=src)
+    f.add("change_clear_pct", c["clear_both_pct"], "%", decimals=1, source=src)
+    for k in ("water", "channel"):
+        b, a = float(c[f"{k}_before_km2"]), float(c[f"{k}_after_km2"])
+        f.add(f"change_{k}_before_km2", b, "km²", decimals=2, source=src)
+        f.add(f"change_{k}_after_km2", a, "km²", decimals=2, source=src)
+        if b > 0:
+            f.add(
+                f"change_{k}_pct",
+                (a - b) / b * 100,
+                "%",
+                source=src,
+                text=_signed((a - b) / b * 100) + "%",
+            )
+    f.add("change_stations", c["stations"], source=src)
+    if c.get("width_before_median_m") is None or c.get("width_after_median_m") is None:
+        return
+    wb, wa = float(c["width_before_median_m"]), float(c["width_after_median_m"])
+    f.add("change_width_before_m", wb, "m", source=src)
+    f.add("change_width_after_m", wa, "m", source=src)
+    f.add("change_width_delta_m", wa - wb, "m", source=src, text=_signed(wa - wb))
+    f.add("change_widened", c["widened_stations"], source=src)
+    f.add("change_widened_threshold_m", c.get("widened_threshold_m", WIDENED_M), "m", source=src)
+    f.add("change_shift_median_m", c["shift_median_m"], "m", source=src)
+    f.add("change_shift_max_m", c["shift_max_m"], "m", source=src)
+    path = job_dir / "web" / "change.geojson"
+    if not path.exists():
+        return
+    g = gpd.read_file(path)
+    st = g[g["kind"] == "station"].sort_values("width_change_m", ascending=False).head(8)
+    rows = []
+    for i, (_, r) in enumerate(st.iterrows(), start=1):
+        lat, lon = r.geometry.y, r.geometry.x
+        rows.append(
+            {
+                "rank": str(i),
+                "before": fmt_num(r["width_before_m"]),
+                "after": fmt_num(r["width_after_m"]),
+                "delta": _signed(float(r["width_change_m"])),
+                "shift": fmt_num(r["shift_m"]),
+                "coords": f"{lat:.5f}, {lon:.5f}",
+                "gmaps_url": f"https://www.google.com/maps?q={lat:.6f},{lon:.6f}",
+            }
+        )
+    f.tables["change_stations"] = rows
 
 
 EXPOSURE = {

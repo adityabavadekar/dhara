@@ -68,23 +68,31 @@ def make_splits(rows: list[dict], cfg: dict) -> dict[str, list[int]]:
             out["val"].append(idx)
         elif a in sp["test_acts"]:
             out["test"].append(idx)
-    if not out["train"] or not out["val"]:
-        # Too few events for the event-level split. Fall back to a tile split, but never let a
-        # mountain hold-out tile into train/val: that would make the "unseen" score meaningless.
-        valid_indices = [
-            i for i, r in enumerate(rows) if r["valid_frac"] >= 0.5 and r["actid"] not in mountain
-        ]
-        n = len(valid_indices)
-        n_train = max(1, int(n * 0.8))
-        out["train"] = valid_indices[:n_train]
-        out["val"] = valid_indices[n_train:] if n > n_train else valid_indices[:n_train]
-        out["test"] = out["val"]
+    missing = [s for s in ("train", "val", "test", "mountain") if not out[s]]
+    if missing:
+        # No silent tile-level fallback: scoring on tiles from training events is meaningless.
+        present = sorted({r["actid"] for r in rows})
+        raise RuntimeError(
+            f"split(s) {missing} are empty with the events present {present}; convert more "
+            "Kuro Siwo shards (prep_kurosiwo.py --max-shards 99) or edit the event lists."
+        )
+    cap = int(sp.get("max_tiles_per_event") or 0)
+    if cap:
+        # Balance events so a few large activations do not dominate training or the scores.
+        rng = random.Random(cfg["seed"])
+        for name, idx in out.items():
+            by: dict[int, list[int]] = {}
+            for i in idx:
+                by.setdefault(rows[i]["actid"], []).append(i)
+            out[name] = sorted(
+                j for v in by.values() for j in (rng.sample(v, cap) if len(v) > cap else v)
+            )
 
     out_meta = {
         "event_relief_m": {str(a): round(v, 1) for a, v in sorted(relief.items())},
         "mountain_events": mountain,
         "counts": {s: len(v) for s, v in out.items()},
-        "tile_split_fallback": out["test"] is out["val"],
+        "events": {s: sorted({rows[i]["actid"] for i in v}) for s, v in out.items()},
     }
     return out | {"_meta": out_meta}  # type: ignore[return-value]
 
@@ -117,6 +125,10 @@ class KuroSiwo(Dataset):
                 x[[2, 3, 4, 5]] = x[[4, 5, 2, 3]]
             if random.random() < a["pre2_dropout"]:
                 x[[4, 5]] = x[[2, 3]]
+            if random.random() < a.get("no_pre", 0.0):
+                # No usable pre-event pass (e.g. Sen1Floods11): both pre slots = the post image.
+                # The target stays the same, so the model learns water vs not without change.
+                x[2:6] = np.concatenate([x[0:2], x[0:2]])
             g = a["gain_jitter_db"]
             for d in range(3):
                 x[2 * d : 2 * d + 2] += np.float32(random.gauss(0, g))
@@ -188,9 +200,10 @@ def build_model(cfg: dict) -> nn.Module:
     import segmentation_models_pytorch as smp
 
     m = cfg["model"]
-    if m["encoder_weights"] and not m["allow_pretrained_weights"]:
+    # ImageNet encoders are allowed (organizer answer, 2026-10-13); other weights need the flag.
+    if m["encoder_weights"] not in (None, "imagenet") and not m["allow_pretrained_weights"]:
         raise RuntimeError(
-            "Pretrained encoder weights are a gray area; set allow_pretrained_weights"
+            f"Encoder weights {m['encoder_weights']!r} are not allowed; set allow_pretrained_weights"
         )
     arch_name = m.get("arch", "Unet")
     model_cls = getattr(smp, arch_name, None)

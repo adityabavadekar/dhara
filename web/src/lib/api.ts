@@ -26,9 +26,35 @@ export type Job = {
 }
 
 export type RasterLayer = { url: string; coordinates: [number, number][] }
+export type ImageryLayer = RasterLayer & { date: string }
+export type ImagerySet = { kind: 'radar' | 'optical'; sensor: string; track: string; before: ImageryLayer; after: ImageryLayer }
 export type Manifest = {
   rasters: Record<string, RasterLayer>
   vectors: Record<string, { url: string; count: number }>
+  /** Before/after images for the sweep: Sentinel-2 true colour when both scenes are clear enough,
+   *  otherwise Sentinel-1 radar. `imagery_radar` is always the radar pair when available. */
+  imagery?: ImagerySet
+  imagery_radar?: ImagerySet
+  /** Measured before/after change from the Sentinel-2 pair (clear sky on both dates only). */
+  change?: ChangeSummary
+}
+
+export type ChangeSummary = {
+  before_day: string
+  after_day: string
+  clear_both_km2: number
+  clear_both_pct: number
+  water_before_km2: number
+  water_after_km2: number
+  channel_before_km2: number
+  channel_after_km2: number
+  stations: number
+  width_before_median_m: number | null
+  width_after_median_m: number | null
+  widened_stations: number
+  width_gain_max_m: number | null
+  shift_median_m: number | null
+  shift_max_m: number | null
 }
 
 export type S1PassInfo = {
@@ -118,6 +144,29 @@ export type ModelRun = {
 }
 export type ModelInfo = { deployed: ModelRun | null; runs: ModelRun[] }
 
+export type ProfilePoint = {
+  dist_km: number
+  elevation_m: number
+  lng: number
+  lat: number
+  slope_pct: number
+}
+
+export type ProfileSummary = {
+  total_distance_km: number
+  min_elevation_m: number
+  max_elevation_m: number
+  elevation_gain_m: number
+  elevation_loss_m: number
+  max_slope_pct: number
+  avg_slope_pct: number
+}
+
+export type ProfileResponse = {
+  points: ProfilePoint[]
+  summary: ProfileSummary
+}
+
 export const api = {
   config: () => req<Config>('/api/config'),
   model: () => req<ModelInfo>('/api/model'),
@@ -148,5 +197,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ asset_type, asset_name, lang }),
     }),
+  profile: (id: string, path: number[][], step_m: number = 30.0) =>
+    req<ProfileResponse>(`/api/jobs/${id}/profile`, {
+      method: 'POST',
+      body: JSON.stringify({ path, step_m }),
+    }),
 }
+
 

@@ -92,6 +92,19 @@ def _terrain(lon: float, lat: float, half_km: float) -> hydro.Terrain:
     return t
 
 
+def _smooth(line: LineString, rounds: int = 2) -> LineString:
+    """Chaikin corner cutting for display: removes the 45°/90° staircase of a D8 path on a 30 m
+    grid. Distances, times and settlement order are computed on the raw path, not this one."""
+    pts = np.asarray(line.coords)
+    for _ in range(rounds):
+        if len(pts) < 3:
+            break
+        q = 0.75 * pts[:-1] + 0.25 * pts[1:]
+        r = 0.25 * pts[:-1] + 0.75 * pts[1:]
+        pts = np.vstack([pts[:1], np.column_stack([q, r]).reshape(-1, 2), pts[-1:]])
+    return LineString(pts)
+
+
 def trace(
     lon: float,
     lat: float,
@@ -109,16 +122,20 @@ def trace(
     crs = t.grid.crs
     to_utm = Transformer.from_crs(4326, crs, always_xy=True)
     x, y = to_utm.transform(lon, lat)
-    # snap to the strongest drainage cell nearby
+    # Start where the user clicked: water runs downhill from there. Only if that cell has no
+    # outflow (a flat or a sink in the conditioned DEM) snap to the strongest drainage nearby.
     c, r = t.grid.to_pixel(x, y)
     r, c = int(r), int(c)
-    k = int(snap_m // t.grid.res)
-    r0, r1 = max(r - k, 0), min(r + k + 1, t.acc.shape[0])
-    c0, c1 = max(c - k, 0), min(c + k + 1, t.acc.shape[1])
-    win = t.acc[r0:r1, c0:c1]
-    rr, cc = np.unravel_index(int(np.nanargmax(win)), win.shape)
-    sx, sy = t.grid.to_world(cc + c0 + 0.5, rr + r0 + 0.5)
+    sx, sy = t.grid.to_world(c + 0.5, r + 0.5)
     pts = hydro.trace_flowpath(t, float(sx), float(sy))
+    if len(pts) < 3:
+        k = int(snap_m // t.grid.res)
+        r0, r1 = max(r - k, 0), min(r + k + 1, t.acc.shape[0])
+        c0, c1 = max(c - k, 0), min(c + k + 1, t.acc.shape[1])
+        win = t.acc[r0:r1, c0:c1]
+        rr, cc = np.unravel_index(int(np.nanargmax(win)), win.shape)
+        sx, sy = t.grid.to_world(cc + c0 + 0.5, rr + r0 + 0.5)
+        pts = hydro.trace_flowpath(t, float(sx), float(sy))
     seg = np.hypot(*np.diff(pts, axis=0).T) if len(pts) > 1 else np.zeros(0)
     cum = np.r_[0.0, np.cumsum(seg)]
     keep = cum <= length_km * 1000
@@ -203,9 +220,31 @@ def trace(
     if len(sdf):
         sdf = sdf.sort_values("distance_km").reset_index(drop=True)
         sdf.insert(0, "order", np.arange(1, len(sdf) + 1))
-    z0 = float(t.dem_cond[int(rr + r0), int(cc + c0)])
+    cs, rs = t.grid.to_pixel(*pts[0])
+    z0 = float(t.dem_cond[min(int(rs), t.dem.shape[0] - 1), min(int(cs), t.dem.shape[1] - 1)])
     ce, re_ = t.grid.to_pixel(*pts[-1])
     z1 = float(t.dem_cond[min(int(re_), t.dem.shape[0] - 1), min(int(ce), t.dem.shape[1] - 1)])
+    node_slopes_pct = np.r_[slope[0], slope] * 100.0
+    to_ll_nodes = Transformer.from_crs(crs, 4326, always_xy=True)
+    step_skip = max(1, len(pts) // 250)
+    profile_indices = list(range(0, len(pts), step_skip))
+    if profile_indices and profile_indices[-1] != len(pts) - 1:
+        profile_indices.append(len(pts) - 1)
+
+    prof_points = []
+    for idx in profile_indices:
+        px, py = pts[idx]
+        plng, plat = to_ll_nodes.transform(px, py)
+        prof_points.append(
+            {
+                "dist_km": round(float(cum[idx]) / 1000.0, 3),
+                "elevation_m": round(float(node_elevs[idx]), 1),
+                "lng": round(float(plng), 5),
+                "lat": round(float(plat), 5),
+                "slope_pct": round(float(node_slopes_pct[idx]), 1),
+            }
+        )
+
     meta = {
         "start_clicked": [lon, lat],
         "start_snapped": list(to_ll.transform(float(sx), float(sy))),
@@ -222,6 +261,22 @@ def trace(
             "avg_speed_kmh": round(float(np.mean(node_speeds_kmh)), 1),
             "total_transit_time_min": round(float(node_times_min[-1]), 1),
         },
+        "profile": {
+            "points": prof_points,
+            "summary": {
+                "total_distance_km": round(float(cum[-1]) / 1000.0, 2),
+                "min_elevation_m": round(float(np.min(node_elevs)), 1),
+                "max_elevation_m": round(float(np.max(node_elevs)), 1),
+                "elevation_gain_m": round(float(np.sum(np.maximum(0, np.diff(node_elevs)))), 1),
+                "elevation_loss_m": round(float(np.sum(np.maximum(0, -np.diff(node_elevs)))), 1),
+                "max_slope_pct": round(float(np.max(node_slopes_pct)), 1)
+                if len(node_slopes_pct)
+                else 0.0,
+                "avg_slope_pct": round(float(np.mean(node_slopes_pct)), 1)
+                if len(node_slopes_pct)
+                else 0.0,
+            },
+        },
     }
     return FlowPath(
         path=gpd.GeoDataFrame(
@@ -230,7 +285,7 @@ def trace(
                 "transit_time_min": [meta["simulation"]["total_transit_time_min"]],
                 "avg_speed_kmh": [meta["simulation"]["avg_speed_kmh"]],
             },
-            geometry=[line],
+            geometry=[_smooth(line)],
             crs=crs,
         ).to_crs(4326),
         corridor=gpd.GeoDataFrame(
@@ -247,3 +302,5 @@ def save(fp: FlowPath, out: Path) -> None:
     fp.corridor.to_file(out / "corridor.geojson", driver="GeoJSON")
     (out / "settlements.geojson").write_text(fp.settlements.to_json(drop_id=True))
     (out / "meta.json").write_text(json.dumps(fp.meta, indent=1))
+    if "profile" in fp.meta:
+        (out / "profile.json").write_text(json.dumps(fp.meta["profile"], indent=1))

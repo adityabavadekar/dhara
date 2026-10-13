@@ -33,12 +33,15 @@ export function Legend({ visible, route, layers }: { visible: Record<LayerId, bo
               {STATUS_LABEL[s]}
             </Item>
           ))}
+          <Item swatch={<span className='flex size-2.5 items-center justify-center rounded-full bg-emerald-600 text-[7px] font-bold text-white'>H</span>}>
+            Air landing zone (HLZ)
+          </Item>
         </div>
       )}
       {route && (
         <div className='space-y-1'>
-          <Item swatch={<span className='h-0 w-3 border-t-2 border-dashed border-slate-500' />}>Route before</Item>
-          <Item swatch={<span className='h-1 w-3 rounded bg-blue-600' />}>Route after</Item>
+          <Item swatch={<span className='h-0 w-3 border-t-2 border-dashed border-white outline outline-1 outline-slate-900' />}>Route before</Item>
+          <Item swatch={<span className='h-1 w-3 rounded bg-sky-400 outline outline-1 outline-slate-900' />}>Route after</Item>
           <Item swatch={<span className='size-2.5 rounded-full border-2 border-white bg-red-600' />}>Route broken</Item>
         </div>
       )}
