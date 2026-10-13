@@ -7,6 +7,9 @@ Route 2 (no credentials): the official open GLO-30 COG distribution (AWS Registr
 """
 
 import math
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import numpy as np
 import rasterio
@@ -52,43 +55,76 @@ def _route() -> tuple[str, dict]:
     return MIRROR, {"AWS_NO_SIGN_REQUEST": "YES"}
 
 
+_tile_locks: dict[str, threading.Lock] = {}
+_tile_locks_guard = threading.Lock()
+
+
+def _local_tile(base: str, env: dict, name: str) -> Path | None:
+    """Path of a cached copy of one GLO-30 tile, downloading it on first use (None = no tile).
+
+    Tiles are 1°x1° and immutable, so every analysis and flow-path trace after the first one in a
+    region reads them from disk instead of over HTTP.
+    """
+    cache = get_settings().cache_dir / "dem_tiles"
+    cache.mkdir(parents=True, exist_ok=True)
+    path, missing = cache / f"{name}.tif", cache / f"{name}.missing"
+    with _tile_locks_guard:
+        lock = _tile_locks.setdefault(name, threading.Lock())
+    with lock:
+        if path.exists():
+            return path
+        if missing.exists():
+            return None
+        gdal_env = {
+            "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+            "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif",
+        }
+        try:
+            with Env(**gdal_env, **env), guarded_raster_open(f"{base}/{name}/{name}.tif") as ds:
+                data = ds.read(1)
+                profile = ds.profile | {"driver": "GTiff", "compress": "deflate", "tiled": True}
+        except RasterioIOError:
+            missing.touch()  # ocean tiles do not exist
+            return None
+        tmp = path.with_suffix(".part")
+        with rasterio.open(tmp, "w", **profile) as dst:
+            dst.write(data, 1)
+        tmp.rename(path)
+        return path
+
+
 def fetch_dem(grid: Grid) -> tuple[np.ndarray, dict]:
     """GLO-30 heights (m, EGM2008) resampled bilinearly onto `grid` (projected CRS).
 
-    Returns (array with NaN where no tile/sea, provenance dict).
+    Returns (array with NaN where no tile/sea, provenance dict). Tiles are fetched in parallel
+    and cached on disk (see `_local_tile`).
     """
     from shapely import box
 
     ll = reproject_geom(box(*grid.bounds), grid.crs, "EPSG:4326").bounds
     base, env = _route()
+    names = tiles_for_bounds(ll)
+    with ThreadPoolExecutor(max_workers=min(4, len(names))) as pool:
+        paths = list(pool.map(lambda n: _local_tile(base, env, n), names))
     out = np.full((grid.height, grid.width), np.nan, dtype=np.float32)
-    used, missing = [], []
-    gdal_env = {
-        "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
-        "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif",
-    }
-    with Env(**gdal_env, **env):
-        for t in tiles_for_bounds(ll):
-            path = f"{base}/{t}/{t}.tif"
-            try:
-                with guarded_raster_open(path) as ds:
-                    tmp = np.full_like(out, np.nan)
-                    reproject(
-                        rasterio.band(ds, 1),
-                        tmp,
-                        src_transform=ds.transform,
-                        src_crs=ds.crs,
-                        dst_transform=grid.transform,
-                        dst_crs=grid.crs,
-                        src_nodata=ds.nodata,
-                        dst_nodata=np.nan,
-                        resampling=Resampling.bilinear,
-                    )
-                    fill = np.isnan(out) & np.isfinite(tmp)
-                    out[fill] = tmp[fill]
-                    used.append(t)
-            except RasterioIOError:
-                missing.append(t)  # ocean tiles do not exist
+    used = [n for n, p in zip(names, paths, strict=True) if p is not None]
+    missing = [n for n, p in zip(names, paths, strict=True) if p is None]
+    for path in (p for p in paths if p is not None):
+        with rasterio.open(path) as ds:
+            tmp = np.full_like(out, np.nan)
+            reproject(
+                rasterio.band(ds, 1),
+                tmp,
+                src_transform=ds.transform,
+                src_crs=ds.crs,
+                dst_transform=grid.transform,
+                dst_crs=grid.crs,
+                src_nodata=ds.nodata,
+                dst_nodata=np.nan,
+                resampling=Resampling.bilinear,
+            )
+            fill = np.isnan(out) & np.isfinite(tmp)
+            out[fill] = tmp[fill]
     if not used:
         raise RuntimeError(f"No Copernicus DEM GLO-30 tiles readable for {ll} (tried {missing})")
     return out, {

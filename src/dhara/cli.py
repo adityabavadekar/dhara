@@ -75,5 +75,18 @@ def run(
     typer.echo(json.dumps(res.summary, indent=2))
 
 
+@app.command()
+def serve(
+    host: Annotated[str, typer.Option(help="Bind host")] = "127.0.0.1",
+    port: Annotated[int, typer.Option(help="Bind port")] = 8000,
+    reload: Annotated[bool, typer.Option(help="Enable hot reload")] = False,
+) -> None:
+    """Start the Dhara FastAPI backend server."""
+    import uvicorn
+
+    typer.echo(f"Starting Dhara API on http://{host}:{port}")
+    uvicorn.run("dhara.api.app:app", host=host, port=port, reload=reload)
+
+
 if __name__ == "__main__":
     app()

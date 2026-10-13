@@ -134,6 +134,16 @@ def test_offline_pipeline(data_dir, monkeypatch):
     assert (cls == F.DEBRIS).any(), np.unique(cls, return_counts=True)
     assert res.summary["buildings"]["count"] == 20
 
+    # The facts ledger must count settlements exactly as the settlements layer does.
+    import geopandas as gpd
+
+    from dhara.sitrep.facts import build
+
+    if (d / "settlements.parquet").exists():
+        counts = gpd.read_parquet(d / "settlements.parquet")["status"].value_counts()
+        facts = {k: v.value for k, v in build(d).items.items()}
+        assert facts["settlements_cut_off"] == int(counts.get("cut_off", 0))
+
 
 @pytest.mark.live
 @pytest.mark.skipif(os.environ.get("DHARA_LIVE") != "1", reason="set DHARA_LIVE=1 for live run")

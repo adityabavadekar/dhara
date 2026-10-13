@@ -45,3 +45,15 @@ def test_no_flood_uses_fallback_and_finds_little():
     pre, post, _ = _scene(flood=False)
     res = classical.run(pre, post, np.ones(pre.shape[1:], bool))
     assert (res.p_flood >= 0.5).mean() < 0.01
+
+
+def test_debris_with_placebo_calibration():
+    from dhara.members import debris
+
+    pre, post, truth = _scene()
+    obs = np.ones(truth.shape, bool)
+    pre2 = pre * 10 ** (np.random.default_rng(42).normal(0, 0.4, pre.shape) / 10)
+    res = debris.run(pre, post, obs, tile=128, pre2=pre2)
+    assert "placebo_null_p99_db" in res.meta
+    assert res.meta["abs_change_threshold_db"] >= res.meta["placebo_null_p99_db"]
+    assert np.isfinite(res.p_change[obs]).all()

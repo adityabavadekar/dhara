@@ -1,0 +1,41 @@
+W1010 19:01:55.420000 4113 torch/distributed/run.py:852] 
+W1010 19:01:55.420000 4113 torch/distributed/run.py:852] *****************************************
+W1010 19:01:55.420000 4113 torch/distributed/run.py:852] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W1010 19:01:55.420000 4113 torch/distributed/run.py:852] *****************************************
+[W1010 19:01:55.166622669 socket.cpp:207] [c10d] The hostname of the client socket cannot be retrieved. err=-3
+[W1010 19:01:57.854454131 socket.cpp:207] [c10d] The hostname of the client socket cannot be retrieved. err=-3
+[W1010 19:01:57.864449607 socket.cpp:207] [c10d] The hostname of the client socket cannot be retrieved. err=-3
+splits {'train': 1165, 'val': 292, 'test': 292, 'mountain': 755} mountain [498, 502, 496, 492]
+/usr/local/lib/python3.12/dist-packages/torch/distributed/c10d_logger.py:83: UserWarning: barrier(): using the device under current context. You can specify `device_id` in `init_process_group` to mute this warning.
+  return func(*args, **kwargs)
+[rank0]:[W1010 19:01:58.361589147 ProcessGroupNCCL.cpp:5138] Guessing device ID based on global rank. This can cause a hang if rank to GPU mapping is heterogeneous. You can specify device_id in init_process_group()
+{"epoch": 0, "loss": 2.3758, "sec": 17, "miou": 0.5844, "iou_flood": 0.3319, "f1_flood": 0.4984, "iou_perm_water": 0.4914}
+/usr/local/lib/python3.12/dist-packages/torch/distributed/c10d_logger.py:83: UserWarning: barrier(): using the device under current context. You can specify `device_id` in `init_process_group` to mute this warning.
+  return func(*args, **kwargs)
+{"epoch": 1, "loss": 0.9717, "sec": 14, "miou": 0.688, "iou_flood": 0.4965, "f1_flood": 0.6636, "iou_perm_water": 0.598}
+{"epoch": 2, "loss": 0.7101, "sec": 14, "miou": 0.7565, "iou_flood": 0.5872, "f1_flood": 0.7399, "iou_perm_water": 0.709}
+{"epoch": 3, "loss": 0.6248, "sec": 14, "miou": 0.7263, "iou_flood": 0.5355, "f1_flood": 0.6975, "iou_perm_water": 0.6732}
+{"epoch": 4, "loss": 0.5386, "sec": 14, "miou": 0.7217, "iou_flood": 0.553, "f1_flood": 0.7122, "iou_perm_water": 0.6419}
+{"epoch": 5, "loss": 0.4813, "sec": 14, "miou": 0.7558, "iou_flood": 0.5923, "f1_flood": 0.744, "iou_perm_water": 0.7025}
+{"epoch": 6, "loss": 0.4768, "sec": 14, "miou": 0.748, "iou_flood": 0.5856, "f1_flood": 0.7386, "iou_perm_water": 0.6861}
+{"epoch": 7, "loss": 0.4084, "sec": 14, "miou": 0.7518, "iou_flood": 0.5954, "f1_flood": 0.7464, "iou_perm_water": 0.6875}
+{"epoch": 8, "loss": 0.4021, "sec": 14, "miou": 0.7626, "iou_flood": 0.5891, "f1_flood": 0.7414, "iou_perm_water": 0.724}
+{"epoch": 9, "loss": 0.376, "sec": 14, "miou": 0.733, "iou_flood": 0.5661, "f1_flood": 0.7229, "iou_perm_water": 0.6603}
+{"epoch": 10, "loss": 0.3438, "sec": 14, "miou": 0.7541, "iou_flood": 0.5941, "f1_flood": 0.7454, "iou_perm_water": 0.6945}
+{"epoch": 11, "loss": 0.3566, "sec": 14, "miou": 0.7461, "iou_flood": 0.5701, "f1_flood": 0.7262, "iou_perm_water": 0.6942}
+{"epoch": 12, "loss": 0.3569, "sec": 14, "miou": 0.7598, "iou_flood": 0.5888, "f1_flood": 0.7412, "iou_perm_water": 0.7158}
+{"epoch": 13, "loss": 0.3401, "sec": 17, "miou": 0.7541, "iou_flood": 0.5928, "f1_flood": 0.7443, "iou_perm_water": 0.6956}
+{"epoch": 14, "loss": 0.3351, "sec": 14, "miou": 0.7567, "iou_flood": 0.5817, "f1_flood": 0.7355, "iou_perm_water": 0.713}
+{"epoch": 15, "loss": 0.3343, "sec": 14, "miou": 0.7662, "iou_flood": 0.602, "f1_flood": 0.7516, "iou_perm_water": 0.722}
+{"epoch": 16, "loss": 0.3281, "sec": 14, "miou": 0.7684, "iou_flood": 0.608, "f1_flood": 0.7562, "iou_perm_water": 0.722}
+{"epoch": 17, "loss": 0.3425, "sec": 14, "miou": 0.7632, "iou_flood": 0.595, "f1_flood": 0.7461, "iou_perm_water": 0.7195}
+{"epoch": 18, "loss": 0.3236, "sec": 14, "miou": 0.771, "iou_flood": 0.6132, "f1_flood": 0.7603, "iou_perm_water": 0.7248}
+{"epoch": 19, "loss": 0.3425, "sec": 14, "miou": 0.7562, "iou_flood": 0.5901, "f1_flood": 0.7423, "iou_perm_water": 0.7039}
+/kaggle/working/training/train.py:322: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  return float(t.exp())
+val {'iou_no_water': 0.9751, 'iou_perm_water': 0.7248, 'iou_flood': 0.6132, 'f1_no_water': 0.9874, 'f1_perm_water': 0.8404, 'f1_flood': 0.7603, 'precision_flood': 0.7079, 'recall_flood': 0.821, 'miou': 0.771, 'n_pixels': 14009556, 'ece_flood': 0.0077, 'event_mean_f1_flood': 0.7667, 'event_f1_flood_ci95': [0.7169, 0.8164]}
+test {'iou_no_water': 0.9751, 'iou_perm_water': 0.7248, 'iou_flood': 0.6132, 'f1_no_water': 0.9874, 'f1_perm_water': 0.8404, 'f1_flood': 0.7603, 'precision_flood': 0.7079, 'recall_flood': 0.821, 'miou': 0.771, 'n_pixels': 14009556, 'ece_flood': 0.0077, 'event_mean_f1_flood': 0.7667, 'event_f1_flood_ci95': [0.7169, 0.8164]}
+mountain {'iou_no_water': 0.977, 'iou_perm_water': 0.7772, 'iou_flood': 0.7793, 'f1_no_water': 0.9884, 'f1_perm_water': 0.8746, 'f1_flood': 0.876, 'precision_flood': 0.8612, 'recall_flood': 0.8913, 'miou': 0.8445, 'n_pixels': 36709840, 'ece_flood': 0.0062, 'event_mean_f1_flood': 0.8633, 'event_f1_flood_ci95': [0.8275, 0.8991]}
+/kaggle/working/training/train.py:500: DeprecationWarning: You are using the legacy TorchScript-based ONNX export. Starting in PyTorch 2.9, the new torch.export-based ONNX exporter has become the default. Learn more about the new export logic: https://docs.pytorch.org/docs/stable/onnx_export.html. For exporting control flow: https://pytorch.org/tutorials/beginner/onnx/export_control_flow_model_to_onnx_tutorial.html
+  torch.onnx.export(

@@ -1,0 +1,160 @@
+{
+  "best_epoch": 18,
+  "temperature": 1.1852,
+  "val": {
+    "iou_no_water": 0.9762,
+    "iou_perm_water": 0.7538,
+    "iou_flood": 0.6488,
+    "f1_no_water": 0.988,
+    "f1_perm_water": 0.8596,
+    "f1_flood": 0.787,
+    "precision_flood": 0.7854,
+    "recall_flood": 0.7885,
+    "miou": 0.7929,
+    "n_pixels": 14009556,
+    "ece_flood": 0.0049,
+    "per_event": {
+      "502": {
+        "iou_no_water": 0.9822,
+        "iou_perm_water": 0.7514,
+        "iou_flood": 0.7018,
+        "f1_no_water": 0.991,
+        "f1_perm_water": 0.858,
+        "f1_flood": 0.8248,
+        "precision_flood": 0.7992,
+        "recall_flood": 0.852,
+        "miou": 0.8118,
+        "n_pixels": 6897858
+      },
+      "518": {
+        "iou_no_water": 0.97,
+        "iou_perm_water": 0.7548,
+        "iou_flood": 0.6084,
+        "f1_no_water": 0.9848,
+        "f1_perm_water": 0.8603,
+        "f1_flood": 0.7565,
+        "precision_flood": 0.7737,
+        "recall_flood": 0.7401,
+        "miou": 0.7777,
+        "n_pixels": 7111698
+      }
+    },
+    "event_mean_f1_flood": 0.7906,
+    "event_f1_flood_ci95": [
+      0.7565,
+      0.8248
+    ]
+  },
+  "test": {
+    "iou_no_water": 0.9762,
+    "iou_perm_water": 0.7538,
+    "iou_flood": 0.6488,
+    "f1_no_water": 0.988,
+    "f1_perm_water": 0.8596,
+    "f1_flood": 0.787,
+    "precision_flood": 0.7854,
+    "recall_flood": 0.7885,
+    "miou": 0.7929,
+    "n_pixels": 14009556,
+    "ece_flood": 0.0049,
+    "per_event": {
+      "502": {
+        "iou_no_water": 0.9822,
+        "iou_perm_water": 0.7514,
+        "iou_flood": 0.7018,
+        "f1_no_water": 0.991,
+        "f1_perm_water": 0.858,
+        "f1_flood": 0.8248,
+        "precision_flood": 0.7992,
+        "recall_flood": 0.852,
+        "miou": 0.8118,
+        "n_pixels": 6897858
+      },
+      "518": {
+        "iou_no_water": 0.97,
+        "iou_perm_water": 0.7548,
+        "iou_flood": 0.6084,
+        "f1_no_water": 0.9848,
+        "f1_perm_water": 0.8603,
+        "f1_flood": 0.7565,
+        "precision_flood": 0.7737,
+        "recall_flood": 0.7401,
+        "miou": 0.7777,
+        "n_pixels": 7111698
+      }
+    },
+    "event_mean_f1_flood": 0.7906,
+    "event_f1_flood_ci95": [
+      0.7565,
+      0.8248
+    ]
+  },
+  "mountain": {
+    "iou_no_water": 0.9777,
+    "iou_perm_water": 0.79,
+    "iou_flood": 0.7814,
+    "f1_no_water": 0.9887,
+    "f1_perm_water": 0.8827,
+    "f1_flood": 0.8773,
+    "precision_flood": 0.8822,
+    "recall_flood": 0.8724,
+    "miou": 0.8497,
+    "n_pixels": 36709840,
+    "ece_flood": 0.0037,
+    "per_event": {
+      "492": {
+        "iou_no_water": 0.9752,
+        "iou_perm_water": 0.7172,
+        "iou_flood": 0.8467,
+        "f1_no_water": 0.9874,
+        "f1_perm_water": 0.8353,
+        "f1_flood": 0.917,
+        "precision_flood": 0.905,
+        "recall_flood": 0.9293,
+        "miou": 0.8464,
+        "n_pixels": 10179704
+      },
+      "496": {
+        "iou_no_water": 0.9687,
+        "iou_perm_water": 0.872,
+        "iou_flood": 0.7975,
+        "f1_no_water": 0.9841,
+        "f1_perm_water": 0.9316,
+        "f1_flood": 0.8874,
+        "precision_flood": 0.9222,
+        "recall_flood": 0.855,
+        "miou": 0.8794,
+        "n_pixels": 803238
+      },
+      "498": {
+        "iou_no_water": 0.9835,
+        "iou_perm_water": 0.7607,
+        "iou_flood": 0.7167,
+        "f1_no_water": 0.9917,
+        "f1_perm_water": 0.8641,
+        "f1_flood": 0.835,
+        "precision_flood": 0.7974,
+        "recall_flood": 0.8763,
+        "miou": 0.8203,
+        "n_pixels": 4773669
+      },
+      "502": {
+        "iou_no_water": 0.9778,
+        "iou_perm_water": 0.809,
+        "iou_flood": 0.697,
+        "f1_no_water": 0.9888,
+        "f1_perm_water": 0.8944,
+        "f1_flood": 0.8214,
+        "precision_flood": 0.8514,
+        "recall_flood": 0.7934,
+        "miou": 0.8279,
+        "n_pixels": 20953229
+      }
+    },
+    "event_mean_f1_flood": 0.8652,
+    "event_f1_flood_ci95": [
+      0.8282,
+      0.9022
+    ]
+  }
+}

@@ -40,6 +40,7 @@ VECTOR_LAYERS = {
     "bridges": "bridges.parquet",
     "settlements": "settlements.parquet",
     "failed_edges": "failed_edges.parquet",
+    "hospitals": "hospitals.parquet",
 }
 
 
@@ -129,7 +130,13 @@ def export_layers(job_dir: Path, grid: Grid, in_aoi: np.ndarray) -> dict:
             continue
         g = gpd.read_parquet(src).to_crs("EPSG:4326")
         if name == "buildings":
-            g = g[g["status"] != "not_hit"]  # keep the file small: hit + not observable
+            # keep hit + not_observable + any identified schools/medical/community facilities
+            is_fac = (
+                g["facility_type"].isin(["school", "health", "community"])
+                if "facility_type" in g.columns
+                else False
+            )
+            g = g[(g["status"] != "not_hit") | is_fac]
         for c in g.columns:
             if c != "geometry" and g[c].dtype == object:
                 g[c] = g[c].map(_jsonable)

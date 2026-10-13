@@ -1,6 +1,6 @@
 # UNet-ResNet50 flood segmentation on Kuro Siwo GRD triplets (post, pre1, pre2; VV+VH in dB).
 dataset: kurosiwo            # allowed training data only (Kuro Siwo / Sen1Floods11)
-data_dir: /kaggle/tmp/ks_arr
+data_dir: /tmp/ks_arr
 out_dir: /kaggle/working/dhara/runs
 run_name: unet_r50_scratch_v1
 seed: 1337

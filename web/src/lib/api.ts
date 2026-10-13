@@ -47,8 +47,39 @@ export type ScenePreview = {
 
 export type Fact = { key: string; value: string; unit: string; text: string; source: string }
 
+export type Place = {
+  id: string
+  name: string
+  name_ne?: string
+  category: string
+  center: [number, number]
+  bbox: [number, number, number, number]
+  polygon: Polygon
+  description: string
+}
+
+export const API_BASE = (() => {
+  if (typeof window !== 'undefined' && (window as unknown as { __DHARA_API_URL?: string }).__DHARA_API_URL) {
+    return (window as unknown as { __DHARA_API_URL?: string }).__DHARA_API_URL!
+  }
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL
+  if (typeof window !== 'undefined') {
+    const { hostname, port, protocol } = window.location
+    // If served from a standalone static server (e.g. npx serve on port 3000, 5000, etc.)
+    // and not port 8000 (FastAPI directly) and not 5173 / 4173 (Vite dev/preview proxy)
+    if (port && port !== '8000' && port !== '5173' && port !== '4173') {
+      const apiHost = hostname === 'localhost' ? '127.0.0.1' : hostname
+      return `${protocol}//${apiHost}:8000`
+    }
+  }
+  return ''
+})()
+
+export const apiUrl = (path: string) => (path.startsWith('http') ? path : `${API_BASE}${path}`)
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(path, {
+  const url = apiUrl(path)
+  const r = await fetch(url, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
   })
@@ -65,10 +96,32 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return r.json() as Promise<T>
 }
 
-export const fileUrl = (jobId: string, name: string) => `/api/jobs/${jobId}/files/${name}`
+export const fileUrl = (jobId: string, name: string) => apiUrl(`/api/jobs/${jobId}/files/${name}`)
+
+export type SplitMetrics = {
+  f1_flood: number | null
+  iou_flood: number | null
+  precision_flood: number | null
+  recall_flood: number | null
+  event_f1_flood_ci95: [number, number] | null
+}
+export type ModelRun = {
+  run_name: string
+  /** False when the run's split let mountain tiles into training, so the mountain score is not held out. */
+  mountain_held_out: boolean
+  architecture: string | null
+  training_data: string | null
+  encoder_weights: string | null
+  splits: { mountain_events?: number[]; counts?: Record<string, number> }
+  test: SplitMetrics
+  mountain: SplitMetrics
+}
+export type ModelInfo = { deployed: ModelRun | null; runs: ModelRun[] }
 
 export const api = {
   config: () => req<Config>('/api/config'),
+  model: () => req<ModelInfo>('/api/model'),
+  places: (q: string = '') => req<Place[]>(`/api/places?q=${encodeURIComponent(q)}`),
   scenes: (aoi: Polygon, event: string) =>
     req<ScenePreview>('/api/scenes', { method: 'POST', body: JSON.stringify({ aoi, event }) }),
   createJob: (body: { aoi: Polygon; event: string; use_s2: boolean; use_ml: boolean; relative_orbit?: number | null }) =>
@@ -80,4 +133,20 @@ export const api = {
   facts: (id: string) => req<Fact[]>(`/api/jobs/${id}/facts`),
   manifest: (id: string) => req<Manifest>(fileUrl(id, 'layers.json')),
   geojson: <T = GeoJSON.FeatureCollection>(id: string, name: string) => req<T>(fileUrl(id, name)),
+  chat: (id: string, message: string, lang: string = 'en') =>
+    req<{ answer: string; lang: string }>(`/api/jobs/${id}/chat`, {
+      method: 'POST',
+      body: JSON.stringify({ message, lang }),
+    }),
+  explainAsset: (
+    id: string,
+    asset_type: 'bridge' | 'settlement' | 'road',
+    asset_name: string,
+    lang: string = 'en',
+  ) =>
+    req<{ explanation: string }>(`/api/jobs/${id}/explain-asset`, {
+      method: 'POST',
+      body: JSON.stringify({ asset_type, asset_name, lang }),
+    }),
 }
+

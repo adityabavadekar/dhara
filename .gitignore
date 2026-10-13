@@ -11,3 +11,11 @@ dist/
 *.egg-info/
 .claude/
 
+*.tsbuildinfo
+
+# Model weights & large binaries
+*.onnx
+*.pt
+*.pth
+*.bin
+*.weights

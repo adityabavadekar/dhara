@@ -10,6 +10,7 @@ which the system does not observe.
 """
 
 import json
+import threading
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -40,19 +41,54 @@ def _utm(lon: float, lat: float) -> CRS:
     return CRS.from_epsg((32600 if lat >= 0 else 32700) + zone)
 
 
+_ARRAYS = ("dem", "dem_cond", "fdir", "acc", "channels", "hand", "slope_deg")
+
+
+def _save_npz(t: hydro.Terrain, tdir: Path) -> None:
+    """Raw arrays, uncompressed: a few hundred ms to load, versus seconds for COGs."""
+    tmp = tdir / "terrain.part.npz"
+    np.savez(tmp, **{n: getattr(t, n) for n in _ARRAYS})
+    tmp.rename(tdir / "terrain.npz")
+    (tdir / "bounds.json").write_text(json.dumps(list(t.grid.bounds)))
+
+
+def _load_npz(tdir: Path, grid: Grid) -> hydro.Terrain | None:
+    f = tdir / "terrain.npz"
+    if not f.exists():
+        return None
+    with np.load(f) as z:
+        return hydro.Terrain(grid=grid, **{n: z[n] for n in _ARRAYS})
+
+
 def _terrain(lon: float, lat: float, half_km: float) -> hydro.Terrain:
+    """Terrain (local UTM) covering a square of `half_km` around the point.
+
+    Reuses any cached flow-path terrain in the same UTM zone that already covers the square, so
+    a second trace in the same valley skips the DEM read and the drainage computation. A new
+    terrain is written to the cache in the background so the trace does not wait for it.
+    """
     crs = _utm(lon, lat)
     x, y = Transformer.from_crs(4326, crs, always_xy=True).transform(lon, lat)
     h = half_km * 1000
-    grid = Grid.snapped(crs, (x - h, y - h, x + h, y + h), hydro.TERRAIN_RES_M)
-    key = f"flowpath_{crs.to_epsg()}_{int(grid.bounds[0])}_{int(grid.bounds[1])}_{int(h)}"
-    tdir = get_settings().cache_dir / key
+    want = (x - h, y - h, x + h, y + h)
+    cache = get_settings().cache_dir
+    epsg = crs.to_epsg()
+    for meta in sorted(cache.glob(f"flowpath_{epsg}_*/bounds.json")):
+        b = json.loads(meta.read_text())
+        if b[0] <= want[0] and b[1] <= want[1] and b[2] >= want[2] and b[3] >= want[3]:
+            t = _load_npz(meta.parent, Grid.snapped(crs, tuple(b), hydro.TERRAIN_RES_M))
+            if t is not None:
+                return t
+    # A 5 km margin lets the next click a few km away reuse this terrain.
+    m = 5000.0
+    grid = Grid.snapped(
+        crs, (want[0] - m, want[1] - m, want[2] + m, want[3] + m), hydro.TERRAIN_RES_M
+    )
+    tdir = cache / f"flowpath_{epsg}_{int(grid.bounds[0])}_{int(grid.bounds[1])}_{int(h)}"
     tdir.mkdir(parents=True, exist_ok=True)
-    t = hydro.load(tdir, grid)
-    if t is None:
-        dem, _ = fetch_dem(grid)
-        t = hydro.compute(dem, grid)
-        hydro.save(t, tdir)
+    dem, _ = fetch_dem(grid)
+    t = hydro.compute(dem, grid)
+    threading.Thread(target=_save_npz, args=(t, tdir), daemon=True).start()
     return t
 
 
@@ -65,7 +101,10 @@ def trace(
     snap_m: float = 300.0,
     snapshot: date = OSM_SNAPSHOT_MAX,
 ) -> FlowPath:
-    """lon/lat in EPSG:4326. Returns path, corridor and ordered settlements (EPSG:4326)."""
+    """Trace downstream flowpath and debris surge wave kinematics.
+
+    Analysis runs in local UTM; inputs and returned geodataframes are in EPSG:4326.
+    """
     t = _terrain(lon, lat, half_km=0.75 * length_km)  # paths are rarely straight
     crs = t.grid.crs
     to_utm = Transformer.from_crs(4326, crs, always_xy=True)
@@ -89,6 +128,24 @@ def trace(
     line = LineString(pts)
     corridor = line.buffer(corridor_m)
 
+    # Sample river bed elevation along the D8 path nodes (local UTM)
+    pix_coords = [t.grid.to_pixel(p[0], p[1]) for p in pts]
+    rows_c = np.clip([int(r) for _, r in pix_coords], 0, t.dem.shape[0] - 1)
+    cols_c = np.clip([int(c) for c, _ in pix_coords], 0, t.dem.shape[1] - 1)
+    node_elevs = t.dem_cond[rows_c, cols_c].astype(float)
+
+    # Rough arrival-time estimate: v(s) = clip(k * slope^0.35, v_min, v_max) in m/s. k, the exponent
+    # and the bounds are assumed, not calibrated against any observed event, so arrival times are
+    # an order-of-magnitude guide only. The UI and sitrep label them as such.
+    seg_len = np.maximum(np.diff(cum), 1.0)
+    drop_per_seg = np.maximum(node_elevs[:-1] - node_elevs[1:], 0.0)
+    slope = np.maximum(drop_per_seg / seg_len, 0.0001)
+    seg_speeds = np.clip(42.0 * (slope**0.35), 6.0, 50.0)  # m/s
+    seg_times_sec = seg_len / seg_speeds
+    node_times_sec = np.r_[0.0, np.cumsum(seg_times_sec)]
+    node_speeds_kmh = np.r_[seg_speeds[0], seg_speeds] * 3.6
+    node_times_min = node_times_sec / 60.0
+
     to_ll = Transformer.from_crs(crs, 4326, always_xy=True)
     bx = corridor.bounds
     lo0, la0 = to_ll.transform(bx[0], bx[1])
@@ -105,6 +162,21 @@ def trace(
             d = line.project(p)
             ci, ri = t.grid.to_pixel(p.x, p.y)
             ri, ci = int(ri), int(ci)
+            elev_m = float(t.dem[ri, ci])
+            hand_m = float(t.hand[ri, ci])
+            arr_min = float(np.interp(d, cum, node_times_min))
+            local_spd = float(np.interp(d, cum, node_speeds_kmh))
+            riv_z = float(np.interp(d, cum, node_elevs))
+            delta_z = elev_m - riv_z
+
+            # Classify exposure: distinguish direct gorge flooding from perched ridge settlements
+            if delta_z <= 15.0 or hand_m <= 12.0:
+                exposure = "direct_path"
+            elif delta_z <= 30.0:
+                exposure = "fringe"
+            else:
+                exposure = "ridge_safe"
+
             rows.append(
                 {
                     "name": tg.get("name") or tg.get("name:en") or "",
@@ -112,8 +184,14 @@ def trace(
                     "osm_id": oid,
                     "distance_km": round(d / 1000, 2),
                     "offset_m": round(line.distance(p), 0),
-                    "elevation_m": round(float(t.dem[ri, ci]), 0),
-                    "hand_m": round(float(t.hand[ri, ci]), 1),
+                    "elevation_m": round(elev_m, 0),
+                    "river_elev_m": round(riv_z, 0),
+                    "delta_z_river_m": round(delta_z, 1),
+                    "hand_m": round(hand_m, 1),
+                    "arrival_time_min": round(arr_min, 1),
+                    "evacuation_window": f"+{int(round(arr_min))}m",
+                    "wave_speed_kmh": round(local_spd, 1),
+                    "exposure_status": exposure,
                     "geometry": p,
                 }
             )
@@ -138,11 +216,23 @@ def trace(
         "settlements": int(len(sdf)),
         "osm_snapshot": f"{min(snapshot, OSM_SNAPSHOT_MAX).isoformat()}T00:00:00Z",
         "dem": "Copernicus DEM GLO-30",
+        "simulation": {
+            "model": "Kinematic slope-dependent Himalayan debris surge wave propagation",
+            "peak_speed_kmh": round(float(np.max(node_speeds_kmh)), 1),
+            "avg_speed_kmh": round(float(np.mean(node_speeds_kmh)), 1),
+            "total_transit_time_min": round(float(node_times_min[-1]), 1),
+        },
     }
     return FlowPath(
-        path=gpd.GeoDataFrame({"length_km": [meta["length_km"]]}, geometry=[line], crs=crs).to_crs(
-            4326
-        ),
+        path=gpd.GeoDataFrame(
+            {
+                "length_km": [meta["length_km"]],
+                "transit_time_min": [meta["simulation"]["total_transit_time_min"]],
+                "avg_speed_kmh": [meta["simulation"]["avg_speed_kmh"]],
+            },
+            geometry=[line],
+            crs=crs,
+        ).to_crs(4326),
         corridor=gpd.GeoDataFrame(
             {"corridor_m": [corridor_m]}, geometry=[corridor], crs=crs
         ).to_crs(4326),

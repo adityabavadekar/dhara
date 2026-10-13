@@ -145,6 +145,32 @@ def sample_features(
         "outside",
         np.where(n_obs == 0, "not_observable", np.where(pmax >= HIT_P, "hit", "not_hit")),
     )
+
+    if "tags" in g.columns:
+        facility_types: list[str] = []
+        names: list[str | None] = []
+        for t_val in g["tags"]:
+            amenity = tag(str(t_val), "amenity")
+            healthcare = tag(str(t_val), "healthcare")
+            bldg = tag(str(t_val), "building")
+            nm = tag(str(t_val), "name") or tag(str(t_val), "name:en")
+            if amenity in ("school", "kindergarten", "college", "university"):
+                ft = "school"
+            elif amenity in ("hospital", "clinic", "doctors", "pharmacy") or healthcare is not None:
+                ft = "health"
+            elif amenity in ("place_of_worship", "community_centre", "townhall"):
+                ft = "community"
+            elif bldg and bldg in ("house", "residential", "apartments"):
+                ft = "residential"
+            elif bldg and bldg == "commercial":
+                ft = "commercial"
+            else:
+                ft = "building"
+            facility_types.append(ft)
+            names.append(nm)
+        g["facility_type"] = facility_types
+        g["name"] = names
+
     return g
 
 

@@ -2,112 +2,361 @@
 <html lang="{{ lang }}">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ L.title }} · {{ F.event }}</title>
 <style>
-  @page { size: A4; margin: 11mm 12mm; }
-  :root { --ink:#0f172a; --muted:#475569; --line:#e2e8f0; --flood:#1d4ed8; --debris:#c27803; --cut:#b91c1c; --bg:#ffffff; }
+  @page { size: A4; margin: 10mm 11mm 12mm; @bottom-left { content: "{{ L.prototype }}"; font: 6.5pt "Noto Sans", sans-serif; color: #64748b; } @bottom-right { content: counter(page) " / " counter(pages); font: 6.5pt "Noto Sans", sans-serif; color: #64748b; } }
+  :root { --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --soft:#f8fafc; --debris:#c27803; --flood:#1d4ed8; --water:#7dd3fc; --unobs:#a8a29e; --cut:#b91c1c; --hosp:#ea580c; --detour:#d97706; --ok:#16a34a; --link:#0369a1; }
   * { box-sizing: border-box; }
-  body { font: 9.2pt/1.38 "Inter", "Noto Sans", "Noto Sans Devanagari", system-ui, sans-serif; color: var(--ink); background: var(--bg); margin: 0; }
-  .page { max-width: 186mm; margin: 0 auto; }
-  header { display:flex; justify-content:space-between; align-items:flex-end; border-bottom: 2px solid var(--ink); padding-bottom: 4px; margin-bottom: 7px; }
-  h1 { font-size: 15pt; margin: 0; letter-spacing: -0.01em; }
-  .sub { color: var(--muted); font-size: 8.4pt; }
-  .badge { font-size: 7.6pt; border: 1px solid var(--ink); padding: 1px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: .04em; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 6px 0 8px; }
-  .kpi { border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; }
-  .kpi .v { font-size: 14pt; font-weight: 650; line-height: 1.1; }
-  .kpi .l { color: var(--muted); font-size: 7.8pt; }
-  .kpi.cut .v { color: var(--cut); } .kpi.deb .v { color: var(--debris); } .kpi.fl .v { color: var(--flood); }
-  h2 { font-size: 9.6pt; margin: 6px 0 3px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-  table { width: 100%; border-collapse: collapse; font-size: 8.2pt; }
-  th, td { text-align: left; padding: 2px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { color: var(--muted); font-weight: 600; }
-  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
-  .map img { width: 100%; border: 1px solid var(--line); border-radius: 6px; }
-  .legend { font-size: 7.6pt; color: var(--muted); display:flex; gap: 9px; flex-wrap: wrap; margin-top: 2px; }
-  .sw { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:3px; vertical-align:-1px; }
-  ul { margin: 2px 0 0 14px; padding: 0; } li { margin: 1px 0; }
-  .box { border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; }
-  .warn { border-color: #cbd5e1; background: #f8fafc; }
-  footer { margin-top: 7px; border-top: 1px solid var(--line); padding-top: 4px; font-size: 6.9pt; color: var(--muted); }
+  html { background: #e2e8f0; }
+  body { margin: 0; color: var(--ink); font: 8.8pt/1.45 "Plus Jakarta Sans", "Inter", "Noto Sans", "Noto Sans Devanagari", "Noto Sans CJK SC", "Noto Sans SC", system-ui, sans-serif; }
+  .sheet { background: #fff; width: 210mm; min-height: 297mm; margin: 12px auto; padding: 11mm 12mm; box-shadow: 0 1px 3px rgb(15 23 42 / .12); }
+  @media print { html { background: #fff; } .sheet { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; break-after: page; } .sheet:last-child { break-after: auto; } }
+  @media (max-width: 800px) { .sheet { width: auto; min-height: 0; margin: 0 0 8px; padding: 16px; } .cols, .kpis { grid-template-columns: 1fr !important; } }
+  .brand { display:flex; justify-content:space-between; align-items:center; font-size: 7.5pt; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  .badge { border: 1px solid var(--ink); color: var(--ink); border-radius: 4px; padding: 1px 6px; font-size: 7pt; }
+  h1 { font-size: 17pt; line-height: 1.15; margin: 4px 0 2px; letter-spacing: -.02em; }
+  h2 { font-size: 11.5pt; margin: 0 0 6px; letter-spacing: -.01em; }
+  h3 { font-size: 8pt; margin: 10px 0 4px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .meta { color: var(--muted); font-size: 8pt; border-bottom: 2px solid var(--ink); padding-bottom: 6px; margin-bottom: 8px; }
+  .bl { border-left: 3px solid var(--cut); background: #fef2f2; padding: 6px 10px; border-radius: 0 6px 6px 0; margin-bottom: 8px; }
+  .bl ul { margin: 2px 0 0; padding-left: 14px; } .bl li { margin: 2px 0; }
+  .bl .label { font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--cut); }
+  .kpis { display:grid; grid-template-columns: repeat(4, 1fr); gap: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 8px; }
+  .kpi { padding: 6px 9px; border-right: 1px solid var(--line); } .kpi:last-child { border-right: 0; }
+  .kpi .h { font-size: 7.4pt; color: var(--muted); font-weight: 600; }
+  .kpi .v { font-size: 18pt; font-weight: 750; letter-spacing: -.02em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+  .kpi .u { font-size: 8pt; color: var(--muted); font-weight: 500; }
+  .kpi .s { font-size: 7.2pt; color: var(--muted); }
+  .bar { display:flex; height: 4px; border-radius: 2px; overflow:hidden; background: var(--line); margin: 3px 0 2px; }
+  .bar span { display:block; height:100%; }
+  .map { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .map { text-align: center; background: #f8fafc; }
+  .map img { display:inline-block; max-width: 100%; vertical-align: top; }
+  .legend { display:flex; flex-wrap: wrap; gap: 3px 10px; font-size: 7.2pt; color: var(--muted); margin: 4px 0 2px; }
+  .sw { display:inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 3px; vertical-align: -1px; }
+  .dot { display:inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 3px; vertical-align: -1px; }
+  .ln { display:inline-block; width: 12px; height: 2px; margin-right: 3px; vertical-align: 2px; }
+  .note { font-size: 7.3pt; color: var(--muted); margin: 3px 0 0; }
+  .cols { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 7.8pt; }
+  th, td { text-align: left; padding: 2.5px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 7.2pt; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr { break-inside: avoid; }
+  .rk { display:inline-block; min-width: 15px; height: 15px; line-height: 15px; text-align:center; border-radius: 50%; color: #fff; font-size: 6.8pt; font-weight: 700; }
+  .rk.sq { border-radius: 3px; }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .pin { font-size: 7pt; white-space: nowrap; }
+  .tag { display:inline-block; border-radius: 3px; padding: 0 4px; font-size: 7pt; font-weight: 600; }
+  .t-cut { background:#fee2e2; color:#991b1b; } .t-hosp { background:#ffedd5; color:#9a3412; } .t-lost { background:#fee2e2; color:#991b1b; } .t-risk { background:#ffedd5; color:#9a3412; }
+  .box { border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; background: var(--soft); }
+  .empty { color: var(--muted); font-style: italic; }
+  .kv { display:grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 7.8pt; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .credits { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display:grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; font-size: 7.2pt; color: #334155; }
+  .credits .c { padding-left: 8px; border-left: 2px solid var(--line); }
+  .credits .t { font-weight: 700; color: var(--ink); font-size: 7.4pt; }
+  .foot { margin-top: 8px; font-size: 7pt; color: var(--muted); border-top: 1px solid var(--line); padding-top: 5px; }
+  .links a { display:inline-block; margin-right: 12px; font-weight: 600; }
+  ul.lim { margin: 0; padding-left: 14px; } ul.lim li { margin: 1.5px 0; }
 </style>
 </head>
-<body><div class="page">
-<header>
-  <div>
-    <h1>{{ L.title }}</h1>
-    <div class="sub">{{ L.event }} {{ F.event }} · {{ L.area }} {{ F.aoi_area_km2 }} km² · {{ L.generated }} {{ F.generated_utc }} · {{ L.job }} {{ F.job_id }}</div>
+<body>
+
+{# ------------------------------------------------------------------ page 1: quick look #}
+<section class="sheet">
+  <div class="brand"><span>{{ L.brand }}</span><span class="badge">{{ L.prototype }}</span></div>
+  <h1>{{ L.title }}</h1>
+  <div class="meta">{{ L.event }} {{ F.event }} · {{ L.area }} {{ F.aoi_area_km2 }} km² · {{ L.generated }} {{ F.generated_utc }} · {{ L.job }} {{ F.job_id }}</div>
+
+  <div class="bl">
+    <div class="label">{{ L.bottom_line }}</div>
+    <ul>
+      <li><b>{{ F.settlements_cut_off }}</b> {{ L.bl_cut_a }} {{ F.settlements_total }} {{ L.bl_cut_b }}
+        <b>{{ F.settlements_hospital_cut_off }}</b> {{ L.bl_hosp }} <b>{{ F.settlements_detour }}</b> {{ L.bl_detour }}
+        {% if flags.cut %}{{ F.buildings_in_cut_off }} {{ L.bl_bld }} {{ F.exposure_radius_m }} m {{ L.bl_bld_b }}{% endif %}</li>
+      <li><b>{{ F.bridges_lost }}</b> {{ L.bl_br_a }} {{ F.bridges_total }} {{ L.bl_br_b }} {{ F.bridges_at_risk }} {{ L.bl_br_c }}
+        <b>{{ F.network_failed_km }} km</b> {{ L.bl_road }}</li>
+      <li>{{ L.bl_hz_a }} <b>{{ F.area_debris_km2 }} km²</b> {{ L.bl_hz_b }} <b>{{ F.area_flood_km2 }} km²</b>;
+        <b>{{ F.buildings_hit }}</b> {{ L.bl_hz_c }} {{ F.buildings_total }} {{ L.bl_hz_d }}
+        {% if flags.unobs %}<b>{{ F.area_not_observable_km2 }} km²</b> {{ L.bl_unobs_a }} <b>{{ L.bl_unobs_b }}</b>{% endif %}</li>
+    </ul>
   </div>
-  <span class="badge">{{ L.prototype }}</span>
-</header>
 
-<div class="kpis">
-  <div class="kpi cut"><div class="v">{{ F.settlements_cut_off }}</div><div class="l">{{ L.k_cut }}</div></div>
-  <div class="kpi"><div class="v">{{ F.bridges_lost }}</div><div class="l">{{ L.k_bridges }} ({{ F.bridges_total }} {{ L.mapped }})</div></div>
-  <div class="kpi deb"><div class="v">{{ F.buildings_hit }}</div><div class="l">{{ L.k_buildings }} ({{ F.buildings_total }} {{ L.mapped }})</div></div>
-  <div class="kpi fl"><div class="v">{{ F.network_failed_km }} km</div><div class="l">{{ L.k_roads }}</div></div>
-</div>
-
-<div class="grid">
-  <div class="map">
-    <img src="data:image/png;base64,{{ map_png }}" alt="map">
-    <div class="legend">
-      <span><span class="sw" style="background:#c27803"></span>{{ L.debris }}</span>
-      <span><span class="sw" style="background:#1d4ed8"></span>{{ L.flood }}</span>
-      <span><span class="sw" style="background:#7dd3fc"></span>{{ L.water }}</span>
-      <span><span class="sw" style="background:#78716c"></span>{{ L.unobs }}</span>
-      <span><span class="sw" style="background:#b91c1c"></span>{{ L.cut_pts }}</span>
+  <div class="kpis">
+    <div class="kpi">
+      <div class="h">{{ L.k_hazard }}</div>
+      <div class="v">{{ F.area_debris_km2 }} <span class="u">km²</span></div>
+      <div class="bar"><span style="width:{{ bars.debris }}%;background:var(--debris)"></span><span style="width:{{ bars.flood }}%;background:var(--flood)"></span><span style="width:{{ bars.unobs }}%;background:var(--unobs)"></span></div>
+      <div class="s">{{ L.k_hazard_sub }} {{ F.area_flood_km2 }} km²</div>
+    </div>
+    <div class="kpi">
+      <div class="h">{{ L.k_cut }}</div>
+      <div class="v" style="color:var(--cut)">{{ F.settlements_cut_off }}</div>
+      <div class="bar"><span style="width:{{ bars.cut }}%;background:var(--cut)"></span><span style="width:{{ bars.hosp }}%;background:var(--hosp)"></span><span style="width:{{ bars.detour }}%;background:var(--detour)"></span></div>
+      <div class="s">{{ L.k_cut_sub }} {{ F.settlements_total }}</div>
+    </div>
+    <div class="kpi">
+      <div class="h">{{ L.k_bridges }}</div>
+      <div class="v" style="color:var(--hosp)">{{ F.bridges_lost }}</div>
+      <div class="bar"><span style="width:{{ bars.br_lost }}%;background:var(--cut)"></span><span style="width:{{ bars.br_risk }}%;background:var(--hosp)"></span></div>
+      <div class="s">{{ L.bl_br_a }} {{ F.bridges_total }} {{ L.k_bridges_sub }} {{ F.bridges_at_risk }}</div>
+    </div>
+    <div class="kpi">
+      <div class="h">{{ L.k_bld }}</div>
+      <div class="v" style="color:#b45309">{{ F.buildings_hit }}</div>
+      <div class="bar"><span style="width:{{ bars.bld }}%;background:#b45309"></span></div>
+      <div class="s">{{ L.bl_br_a }} {{ F.buildings_total }} {{ L.k_bld_sub }}</div>
     </div>
   </div>
-  <div>
-    <h2>{{ L.where }}</h2>
-    <ul>
-      <li>{{ L.debris_area }}: <b>{{ F.area_debris_km2 }} km²</b>; {{ L.flood_area }}: <b>{{ F.area_flood_km2 }} km²</b>.</li>
-      <li>{{ L.tiers }}: {{ L.high }} {{ F.area_tier_high_km2 }} km², {{ L.moderate }} {{ F.area_tier_moderate_km2 }} km², {{ L.low }} {{ F.area_tier_low_km2 }} km².</li>
-      <li>{{ L.unobs_area }}: <b>{{ F.area_not_observable_km2 }} km²</b> ({{ L.observable }} {{ F.observable_pct }}%). {{ L.unobs_note }}</li>
-    </ul>
-    <h2>{{ L.what }}</h2>
-    <ul>
-      <li>{{ L.bld_tiers }}: {{ L.high }} {{ F.buildings_hit_high }}, {{ L.moderate }} {{ F.buildings_hit_moderate }}, {{ L.low }} {{ F.buildings_hit_low }}; {{ L.bld_unobs }} {{ F.buildings_unobserved }}.</li>
-      <li>{{ L.roads_hit }}: {{ F.road_ways_hit }}. {{ L.net }}: {{ F.network_km }} km, {{ L.net_failed }} {{ F.network_failed_km }} km, {{ L.net_unobs }} {{ F.network_unobserved_pct }}%.</li>
-      <li>{{ L.bridges }}: {{ F.bridges_lost }} {{ L.of }} {{ F.bridges_total }} ({{ L.high }} {{ F.bridges_lost_high }}); {{ L.at_risk }}: {{ F.bridges_at_risk }}.</li>
-    </ul>
-    <h2>{{ L.who }}</h2>
-    <ul>
-      <li>{{ L.cut }}: <b>{{ F.settlements_cut_off }}</b>; {{ L.hosp_cut }}: {{ F.settlements_hospital_cut_off }}; {{ L.detour }}: {{ F.settlements_detour }}; {{ L.connected }}: {{ F.settlements_connected }} ({{ L.of }} {{ F.settlements_total }}).</li>
-      <li>{{ L.exposure_a }} {{ F.exposure_radius_m }} m {{ L.exposure_b }}: <b>{{ F.buildings_in_cut_off }}</b>.</li>
-    </ul>
-  </div>
-</div>
 
-<div class="grid" style="margin-top:6px">
-  <div>
-    <h2>{{ L.t_cut }}</h2>
-    {% if T.cut_off %}
-    <table><tr><th>{{ L.c_name }}</th><th>{{ L.c_status }}</th><th class="n">{{ L.c_bld }}</th><th class="n">{{ L.c_p }}</th><th class="n">{{ L.c_km }}</th></tr>
-    {% for r in T.cut_off %}<tr><td>{{ r.name }} <span class="sub">{{ r.place }}</span></td><td>{{ r.status }}</td><td class="n">{{ r.buildings }}</td><td class="n">{{ r.p_cut }}</td><td class="n">{{ r.km_pre }}</td></tr>{% endfor %}
-    </table>
-    {% else %}<p class="sub">{{ L.none_cut }}</p>{% endif %}
+  {% if maps.overview %}
+  <div class="map"><img src="data:image/png;base64,{{ maps.overview }}" alt="{{ L.map_overview }}"></div>
+  <div class="legend">
+    <span><span class="sw" style="background:var(--debris)"></span>{{ L.lg_debris }}</span>
+    <span><span class="sw" style="background:var(--flood)"></span>{{ L.lg_flood }}</span>
+    <span><span class="sw" style="background:var(--water)"></span>{{ L.lg_water }}</span>
+    <span><span class="sw" style="background:var(--unobs)"></span>{{ L.lg_unobs }}</span>
+    <span><span class="ln" style="background:#dc2626"></span>{{ L.lg_failed }}</span>
+    <span><span class="dot" style="background:var(--cut)"></span>{{ L.lg_cut }}</span>
+    <span><span class="dot" style="background:var(--hosp)"></span>{{ L.lg_hosp_cut }}</span>
+    <span><span class="dot" style="background:var(--detour)"></span>{{ L.lg_detour }}</span>
+    <span><span class="dot" style="background:var(--ok)"></span>{{ L.lg_connected }}</span>
+    <span><span class="dot" style="background:#fff;border:1.5px solid #dc2626"></span>{{ L.lg_hospital }}</span>
   </div>
-  <div>
-    <h2>{{ L.t_repair }}</h2>
-    {% if T.repairs %}
-    <table><tr><th class="n">#</th><th>{{ L.r_what }}</th><th class="n">{{ L.r_set }}</th><th class="n">{{ L.c_bld }}</th></tr>
-    {% for r in T.repairs %}<tr><td class="n">{{ r.rank }}</td><td>{{ r.what }} <span class="sub">{{ r.highway }} · {{ r.osm_id }}</span></td><td class="n">{{ r.settlements }}</td><td class="n">{{ r.buildings }}</td></tr>{% endfor %}
-    </table>
-    {% else %}<p class="sub">{{ L.none_repair }}</p>{% endif %}
-    {% if T.bridge_repairs %}<p class="sub" style="margin:3px 0 0">{{ L.bridge_first }}: {% for r in T.bridge_repairs %}{{ r.what }} ({{ r.osm_id }}) → {{ r.settlements }} / {{ r.buildings }}{% if not loop.last %}; {% endif %}{% endfor %}</p>{% endif %}
-    <h2>{{ L.limits }}</h2>
-    <div class="box warn">{{ L.limits_text }}</div>
-  </div>
-</div>
+  <p class="note">{{ L.map_overview_note }}</p>
+  {% endif %}
 
-<footer>
-  <b>{{ L.data }}:</b>
-  {% for s in T.s1 %}{{ F.sensor_s1 }} {{ s.track }} {{ s.pre }} → {{ s.post }}; {% endfor %}
-  {{ F.sensor_s2 }} {{ F.s2_pair }}; {{ L.osm }} {{ F.osm_snapshot }}; {{ L.res }} {{ F.resolution_m }} m. {{ L.members }}: {{ F.members }}.<br>
-  {{ F.attr_s }} {{ F.attr_dem }} {{ F.attr_osm }}<br>
-  {{ L.method }} {{ L.verified }}
-</footer>
-</div></body></html>
+  <div class="cols" style="margin-top:6px">
+    <div>
+      <h3>{{ L.act_first }}</h3>
+      {% if T.cut_off %}
+      <table>
+        {% for r in T.cut_off[:5] %}<tr>
+          <td style="width:18px"><span class="rk" style="background:{% if r.status == 'cut off' %}var(--cut){% else %}var(--hosp){% endif %}">{{ r.rank }}</span></td>
+          <td><b>{{ r.name }}</b> <span class="tag {% if r.status == 'cut off' %}t-cut{% else %}t-hosp{% endif %}">{% if r.status == 'cut off' %}{{ L.st_cut_off }}{% else %}{{ L.st_hospital_cut_off }}{% endif %}</span></td>
+          <td class="n">{{ r.buildings }} {{ L.bldgs }}</td>
+          <td class="pin"><a href="{{ r.gmaps_url }}">↗ Maps</a></td>
+        </tr>{% endfor %}
+      </table>
+      {% else %}<p class="empty">{{ L.act_none }}</p>{% endif %}
+    </div>
+    <div>
+      <h3>{{ L.top_repairs }}</h3>
+      {% if T.repairs %}
+      <table>
+        {% for r in T.repairs[:3] %}<tr>
+          <td style="width:18px"><span class="rk sq" style="background:var(--ok)">{{ r.rank }}</span></td>
+          <td><b>{{ r.what }}</b> <span class="note">{{ r.highway }}</span></td>
+          <td class="n">{{ L.reconnects }} {{ r.settlements }} · {{ r.buildings }} {{ L.bldgs }}</td>
+        </tr>{% endfor %}
+      </table>
+      {% else %}<p class="empty">{{ L.repair_none }}</p>{% endif %}
+      <h3>{{ L.trust }}</h3>
+      <p class="note" style="margin:0">{{ F.observable_pct }}% {{ L.observable }} {{ L.trust_text }}</p>
+    </div>
+  </div>
+  <div class="foot">{{ L.footer }}</div>
+</section>
+
+{# ------------------------------------------------------------------ page 2: hazard and damage #}
+<section class="sheet">
+  <h2>{{ L.p2_title }}</h2>
+  {% if maps.zoom %}
+  <div class="map"><img src="data:image/png;base64,{{ maps.zoom }}" alt="{{ L.zoom_title }}"></div>
+  <div class="legend">
+    <span><span class="sw" style="background:var(--debris)"></span>{{ L.lg_debris }}</span>
+    <span><span class="sw" style="background:var(--flood)"></span>{{ L.lg_flood }}</span>
+    <span><span class="sw" style="background:#b45309"></span>{{ L.lg_bld }}</span>
+    <span><span class="ln" style="background:var(--cut);height:4px"></span>{{ L.lg_bridge_lost }}</span>
+    <span><span class="ln" style="background:var(--hosp);height:4px"></span>{{ L.lg_bridge_risk }}</span>
+    <span><span class="ln" style="background:#dc2626"></span>{{ L.lg_failed }}</span>
+  </div>
+  <p class="note">{{ L.zoom_note }}</p>
+  {% endif %}
+
+  <div class="cols" style="margin-top:4px">
+    <div>
+      <h3>{{ L.t_hazard }}</h3>
+      <table>
+        <tr><th>{{ L.c_class }}</th><th class="n">{{ L.c_km2 }}</th></tr>
+        <tr><td><span class="sw" style="background:var(--debris)"></span>{{ L.h_debris }}</td><td class="n">{{ F.area_debris_km2 }}</td></tr>
+        <tr><td><span class="sw" style="background:var(--flood)"></span>{{ L.h_flood }}</td><td class="n">{{ F.area_flood_km2 }}</td></tr>
+        <tr><td><span class="sw" style="background:var(--water)"></span>{{ L.h_water }}</td><td class="n">{{ F.area_permanent_water_km2 }}</td></tr>
+        <tr><td><span class="sw" style="background:var(--unobs)"></span>{{ L.h_unobs }}</td><td class="n">{{ F.area_not_observable_km2 }}</td></tr>
+      </table>
+      <h3>{{ L.t_conf }}</h3>
+      <table>
+        <tr><th></th><th class="n">{{ L.c_km2 }}</th><th class="n">{{ L.c_bld }}</th></tr>
+        <tr><td>{{ L.high }}</td><td class="n">{{ F.area_tier_high_km2 }}</td><td class="n">{{ F.buildings_hit_high }}</td></tr>
+        <tr><td>{{ L.moderate }}</td><td class="n">{{ F.area_tier_moderate_km2 }}</td><td class="n">{{ F.buildings_hit_moderate }}</td></tr>
+        <tr><td>{{ L.low }}</td><td class="n">{{ F.area_tier_low_km2 }}</td><td class="n">{{ F.buildings_hit_low }}</td></tr>
+      </table>
+      <p class="note">{{ L.conf_note }}</p>
+    </div>
+    <div>
+      <h3>{{ L.t_damage }}</h3>
+      <dl class="kv">
+        <dt>{{ L.d_bld }}</dt><dd>{{ F.buildings_hit }} / {{ F.buildings_total }}</dd>
+        <dt>{{ L.d_bld_unobs }}</dt><dd>{{ F.buildings_unobserved }}</dd>
+        <dt>{{ L.d_roads }}</dt><dd>{{ F.road_ways_hit }}</dd>
+        <dt>{{ L.d_net }}</dt><dd>{{ F.network_km }} km</dd>
+        <dt>{{ L.d_failed }}</dt><dd>{{ F.network_failed_km }} km</dd>
+        <dt>{{ L.d_net_unobs }}</dt><dd>{{ F.network_unobserved_pct }}%</dd>
+      </dl>
+      <h3>{{ L.t_fac }}</h3>
+      {% if T.facilities_hit %}
+      <table>
+        <tr><th>{{ L.f_name }}</th><th>{{ L.f_type }}</th><th>{{ L.f_hazard }}</th><th></th></tr>
+        {% for r in T.facilities_hit %}<tr><td>{{ r.name }}</td><td>{{ r.type }}</td><td>{{ r.hazard }} · {{ r.confidence }}</td><td class="pin"><a href="{{ r.gmaps_url }}">↗ Maps</a></td></tr>{% endfor %}
+      </table>
+      {% else %}<p class="empty">{{ L.f_none }}</p>{% endif %}
+    </div>
+  </div>
+
+  <h3>{{ L.t_bridges }}</h3>
+  {% if T.bridges %}
+  <table>
+    <tr><th></th><th>{{ L.b_name }}</th><th>{{ L.b_status }}</th><th class="n">{{ L.b_p }}</th><th class="n">{{ L.b_drop }}</th><th class="n">{{ L.b_len }}</th><th></th></tr>
+    {% for r in T.bridges %}<tr>
+      <td style="width:18px"><span class="rk sq" style="background:var(--ink)">{{ r.rank }}</span></td>
+      <td>{{ r.name }}{% if r.osm_url %} <a class="note" href="{{ r.osm_url }}">{{ r.osm_label }}</a>{% endif %}</td>
+      <td><span class="tag {% if r.status == 'likely lost' %}t-lost{% else %}t-risk{% endif %}">{{ r.status }}</span></td>
+      <td class="n">{{ r.p_lost }}</td><td class="n">{{ r.drop_db }}</td><td class="n">{{ r.length_m }}</td>
+      <td class="pin"><a href="{{ r.gmaps_url }}">↗ Maps</a></td>
+    </tr>{% endfor %}
+  </table>
+  <p class="note">{{ L.bridge_note }}</p>
+  {% else %}<p class="empty">{{ L.b_none }}</p>{% endif %}
+</section>
+
+{# ------------------------------------------------------------------ page 3: access #}
+<section class="sheet">
+  <h2>{{ L.p3_title }}</h2>
+  {% if maps.access and flags.any_access %}
+  <div class="map"><img src="data:image/png;base64,{{ maps.access }}" alt="{{ L.p3_title }}"></div>
+  <div class="legend">
+    <span><span class="ln" style="background:#dc2626"></span>{{ L.lg_failed }}</span>
+    <span><span class="dot" style="background:var(--cut)"></span>{{ L.lg_cut }}</span>
+    <span><span class="dot" style="background:var(--hosp)"></span>{{ L.lg_hosp_cut }}</span>
+    <span><span class="dot" style="background:var(--detour)"></span>{{ L.lg_detour }}</span>
+    <span><span class="dot" style="background:var(--ok)"></span>{{ L.lg_connected }}</span>
+    <span><span class="dot" style="background:#fff;border:1.5px solid #dc2626"></span>{{ L.lg_hospital }}</span>
+    <span><span class="sw" style="background:var(--ok)"></span>{{ L.lg_repair }}</span>
+  </div>
+  <p class="note">{{ L.access_note }}</p>
+  {% endif %}
+
+  <h3>{{ L.t_cut }}</h3>
+  {% if T.cut_off %}
+  <table>
+    <tr><th></th><th>{{ L.c_name }}</th><th>{{ L.c_status }}</th><th class="n">{{ L.c_bld }}</th><th class="n">{{ L.c_p }}</th><th class="n">{{ L.c_km }}</th><th>{{ L.c_hosp }}</th><th>{{ L.c_where }}</th></tr>
+    {% for r in T.cut_off %}<tr>
+      <td style="width:18px"><span class="rk" style="background:{% if r.status == 'cut off' %}var(--cut){% else %}var(--hosp){% endif %}">{{ r.rank }}</span></td>
+      <td><b>{{ r.name }}</b> <span class="note">{{ r.place }}</span></td>
+      <td><span class="tag {% if r.status == 'cut off' %}t-cut{% else %}t-hosp{% endif %}">{% if r.status == 'cut off' %}{{ L.st_cut_off }}{% else %}{{ L.st_hospital_cut_off }}{% endif %}</span></td>
+      <td class="n">{{ r.buildings }}</td><td class="n">{{ r.p_cut }}</td><td class="n">{{ r.km_pre }}</td>
+      <td>{{ r.hospital }}</td>
+      <td class="pin"><a href="{{ r.gmaps_url }}">{{ r.coords }} ↗</a></td>
+    </tr>{% endfor %}
+  </table>
+  {% else %}<p class="empty">{{ L.act_none }}</p>{% endif %}
+
+  <div class="cols">
+    <div>
+      <h3>{{ L.t_detour }}</h3>
+      {% if T.detours %}
+      <table>
+        <tr><th>{{ L.c_name }}</th><th class="n">{{ L.c_bld }}</th><th class="n">{{ L.d_hpre }}</th><th class="n">{{ L.d_hpost }}</th><th class="n">{{ L.d_delay }}</th><th></th></tr>
+        {% for r in T.detours %}<tr><td>{{ r.name }}</td><td class="n">{{ r.buildings }}</td><td class="n">{{ r.h_pre }}</td><td class="n">{{ r.h_post }}</td><td class="n"><b>{{ r.delay }}</b></td><td class="pin"><a href="{{ r.gmaps_url }}">↗</a></td></tr>{% endfor %}
+      </table>
+      {% else %}<p class="empty">{{ L.detour_none }}</p>{% endif %}
+    </div>
+    <div>
+      <h3>{{ L.t_repair }}</h3>
+      {% if T.repairs %}
+      <table>
+        <tr><th></th><th>{{ L.r_asset }}</th><th class="n">{{ L.r_settl }}</th><th class="n">{{ L.r_bld }}</th></tr>
+        {% for r in T.repairs %}<tr><td style="width:18px"><span class="rk sq" style="background:var(--ok)">{{ r.rank }}</span></td><td>{{ r.what }} <span class="note">{{ r.highway }}</span>{% if r.osm_url %} <a class="note" href="{{ r.osm_url }}">{{ r.osm_label }}</a>{% endif %}</td><td class="n">{{ r.settlements }}</td><td class="n">{{ r.buildings }}</td></tr>{% endfor %}
+      </table>
+      {% else %}<p class="empty">{{ L.repair_none }}</p>{% endif %}
+      <h3>{{ L.t_hosp }}</h3>
+      {% if T.hospitals %}
+      <table>
+        <tr><th>{{ L.h_name }}</th><th>{{ L.h_type }}</th><th>{{ L.h_access }}</th><th></th></tr>
+        {% for h in T.hospitals %}<tr><td>{{ h.name }}</td><td>{{ h.amenity }}</td><td>{{ h.status }}</td><td class="pin"><a href="{{ h.gmaps_url }}">↗ Maps</a></td></tr>{% endfor %}
+      </table>
+      {% endif %}
+    </div>
+  </div>
+  <p class="note">{{ L.cut_note }}</p>
+</section>
+
+{# ------------------------------------------------------------------ page 4: flood paths #}
+{% if flow %}
+<section class="sheet">
+  <h2>{{ L.p4_title }}</h2>
+  <p class="note" style="margin-bottom:6px">{{ L.fp_note }}</p>
+  {% for t in flow %}
+  <div style="break-inside: avoid; margin-bottom: 10px">
+    <h3>{{ L.fp_trace }} {{ t.meta.rank }} · <a href="{{ t.meta.start_url }}">{{ t.meta.start }} ↗</a></h3>
+    <dl class="kv" style="grid-template-columns: repeat(4, auto 1fr)">
+      <dt>{{ L.fp_len }}</dt><dd>{{ t.meta.length_km }}</dd>
+      <dt>{{ L.fp_drop }}</dt><dd>{{ t.meta.drop_m }}</dd>
+      <dt>{{ L.fp_settl }}</dt><dd>{{ t.meta.settlements }}</dd>
+      <dt>{{ L.fp_stop }}</dt><dd>{{ t.meta.stopped }}</dd>
+    </dl>
+    {% if maps.flow and maps.flow[loop.index0] %}<div class="map" style="margin-top:4px"><img src="data:image/png;base64,{{ maps.flow[loop.index0] }}" alt="{{ L.fp_trace }}"></div>{% endif %}
+    {% if t.rows %}
+    <table style="margin-top:4px">
+      <tr><th class="n">{{ L.fp_order }}</th><th>{{ L.c_name }}</th><th class="n">{{ L.fp_km }}</th><th class="n">{{ L.fp_dz }}</th><th>{{ L.fp_exp }}</th><th class="n">{{ L.fp_arr }}</th><th></th></tr>
+      {% for r in t.rows %}<tr><td class="n"><span class="rk" style="background:#7c3aed">{{ r.order }}</span></td><td>{{ r.name }}</td><td class="n">{{ r.km }}</td><td class="n">{{ r.dz }}</td><td>{{ r.exposure }}</td><td class="n">{{ r.arrival }}</td><td class="pin"><a href="{{ r.gmaps_url }}">↗</a></td></tr>{% endfor %}
+    </table>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{# ------------------------------------------------------------------ last page: data and method #}
+<section class="sheet">
+  <h2>{{ L.p5_title }}</h2>
+  <div class="cols">
+    <div>
+      <h3>{{ L.t_data }}</h3>
+      <dl class="kv">
+        {% for s in T.s1 %}<dt>{{ F.sensor_s1 }} {{ s.track }}</dt><dd>{{ s.pre }} → {{ s.post }}</dd>{% endfor %}
+        <dt>{{ F.sensor_s2 }} {{ L.ds_s2 }}</dt><dd>{{ F.s2_pair }}</dd>
+        <dt>{{ L.ds_osm }}</dt><dd>{{ F.osm_snapshot }}</dd>
+        <dt>{{ L.ds_grid }}</dt><dd>{{ F.resolution_m }} m</dd>
+        <dt>{{ L.ds_members }}</dt><dd style="font-weight:500">{% for m in member_names %}{{ m }}{% if not loop.last %}<br>{% endif %}{% endfor %}</dd>
+      </dl>
+      <h3>{{ L.method }}</h3>
+      <p class="note" style="margin:0">{{ L.method_text }}</p>
+      <h3>{{ L.links }}</h3>
+      <div class="links">
+        <a href="provenance.json">{{ L.l_prov }} ↗</a>
+        <a href="../download.zip">{{ L.l_zip }} ↗</a>
+        <a href="sitrep_{{ other }}.html">{{ L.l_other }} ↗</a>
+      </div>
+    </div>
+    <div>
+      <h3>{{ L.limits }}</h3>
+      <div class="box"><ul class="lim">{% for l in L.limits_list %}<li>{{ l }}</li>{% endfor %}</ul></div>
+    </div>
+  </div>
+
+  <h3>{{ L.credits }}</h3>
+  <div class="credits">
+    <div class="c"><div class="t">Copernicus Sentinel-1 / Sentinel-2</div>{{ F.attr_s }}</div>
+    <div class="c"><div class="t">{{ F.dem_name }}</div>{{ F.attr_dem }}</div>
+    <div class="c"><div class="t">OpenStreetMap</div>{{ F.attr_osm }}</div>
+    <div class="c"><div class="t">Kuro Siwo</div>{{ F.attr_train }}</div>
+  </div>
+  <div class="foot">{{ L.footer }} · {{ L.prototype }}</div>
+</section>
+
+</body>
+</html>

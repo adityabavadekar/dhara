@@ -1,0 +1,290 @@
+{
+  "Overall_South_Asia": {
+    "hf_sen1floods11_resnet34": {
+      "water_iou": 0.6555,
+      "water_f1": 0.7919,
+      "water_prec": 0.8694,
+      "water_rec": 0.727,
+      "tiles": 29
+    },
+    "unet_r50_scratch_v1": {
+      "water_iou": 0.4295,
+      "water_f1": 0.6009,
+      "water_prec": 0.692,
+      "water_rec": 0.531,
+      "tiles": 29
+    },
+    "fpn_r50_v1": {
+      "water_iou": 0.474,
+      "water_f1": 0.6432,
+      "water_prec": 0.6867,
+      "water_rec": 0.6049,
+      "tiles": 29
+    },
+    "physics_unet_r50_v1": {
+      "water_iou": 0.4088,
+      "water_f1": 0.5804,
+      "water_prec": 0.6695,
+      "water_rec": 0.5122,
+      "tiles": 29
+    },
+    "deeplabv3p_r50_v1": {
+      "water_iou": 0.4603,
+      "water_f1": 0.6304,
+      "water_prec": 0.6588,
+      "water_rec": 0.6043,
+      "tiles": 29
+    },
+    "segformer_mitb0_v1": {
+      "water_iou": 0.3937,
+      "water_f1": 0.5649,
+      "water_prec": 0.7993,
+      "water_rec": 0.4369,
+      "tiles": 29
+    },
+    "physics_segformer_mitb0_v1": {
+      "water_iou": 0.3616,
+      "water_f1": 0.5312,
+      "water_prec": 0.8386,
+      "water_rec": 0.3887,
+      "tiles": 29
+    },
+    "unetplusplus_r50_v1": {
+      "water_iou": 0.4026,
+      "water_f1": 0.5741,
+      "water_prec": 0.6627,
+      "water_rec": 0.5064,
+      "tiles": 29
+    },
+    "manet_r50_v1": {
+      "water_iou": 0.4285,
+      "water_f1": 0.6,
+      "water_prec": 0.7757,
+      "water_rec": 0.4892,
+      "tiles": 29
+    },
+    "pan_r50_v1": {
+      "water_iou": 0.4538,
+      "water_f1": 0.6243,
+      "water_prec": 0.6318,
+      "water_rec": 0.6169,
+      "tiles": 29
+    }
+  },
+  "India": {
+    "hf_sen1floods11_resnet34": {
+      "water_iou": 0.6851,
+      "water_f1": 0.8131,
+      "water_prec": 0.8716,
+      "water_rec": 0.762,
+      "tiles": 14
+    },
+    "unet_r50_scratch_v1": {
+      "water_iou": 0.6375,
+      "water_f1": 0.7786,
+      "water_prec": 0.8416,
+      "water_rec": 0.7244,
+      "tiles": 14
+    },
+    "fpn_r50_v1": {
+      "water_iou": 0.6299,
+      "water_f1": 0.773,
+      "water_prec": 0.8332,
+      "water_rec": 0.7208,
+      "tiles": 14
+    },
+    "physics_unet_r50_v1": {
+      "water_iou": 0.6377,
+      "water_f1": 0.7788,
+      "water_prec": 0.8318,
+      "water_rec": 0.7322,
+      "tiles": 14
+    },
+    "deeplabv3p_r50_v1": {
+      "water_iou": 0.6258,
+      "water_f1": 0.7698,
+      "water_prec": 0.8017,
+      "water_rec": 0.7404,
+      "tiles": 14
+    },
+    "segformer_mitb0_v1": {
+      "water_iou": 0.6042,
+      "water_f1": 0.7533,
+      "water_prec": 0.8683,
+      "water_rec": 0.6651,
+      "tiles": 14
+    },
+    "physics_segformer_mitb0_v1": {
+      "water_iou": 0.5832,
+      "water_f1": 0.7367,
+      "water_prec": 0.9022,
+      "water_rec": 0.6225,
+      "tiles": 14
+    },
+    "unetplusplus_r50_v1": {
+      "water_iou": 0.6318,
+      "water_f1": 0.7743,
+      "water_prec": 0.8268,
+      "water_rec": 0.7282,
+      "tiles": 14
+    },
+    "manet_r50_v1": {
+      "water_iou": 0.6167,
+      "water_f1": 0.7629,
+      "water_prec": 0.8644,
+      "water_rec": 0.6827,
+      "tiles": 14
+    },
+    "pan_r50_v1": {
+      "water_iou": 0.634,
+      "water_f1": 0.776,
+      "water_prec": 0.8167,
+      "water_rec": 0.7392,
+      "tiles": 14
+    }
+  },
+  "Pakistan": {
+    "hf_sen1floods11_resnet34": {
+      "water_iou": 0.2005,
+      "water_f1": 0.334,
+      "water_prec": 0.5025,
+      "water_rec": 0.2501,
+      "tiles": 6
+    },
+    "unet_r50_scratch_v1": {
+      "water_iou": 0.1127,
+      "water_f1": 0.2026,
+      "water_prec": 0.2112,
+      "water_rec": 0.1946,
+      "tiles": 6
+    },
+    "fpn_r50_v1": {
+      "water_iou": 0.1132,
+      "water_f1": 0.2033,
+      "water_prec": 0.2044,
+      "water_rec": 0.2023,
+      "tiles": 6
+    },
+    "physics_unet_r50_v1": {
+      "water_iou": 0.109,
+      "water_f1": 0.1966,
+      "water_prec": 0.1985,
+      "water_rec": 0.1947,
+      "tiles": 6
+    },
+    "deeplabv3p_r50_v1": {
+      "water_iou": 0.1056,
+      "water_f1": 0.191,
+      "water_prec": 0.1825,
+      "water_rec": 0.2003,
+      "tiles": 6
+    },
+    "segformer_mitb0_v1": {
+      "water_iou": 0.1243,
+      "water_f1": 0.2211,
+      "water_prec": 0.3484,
+      "water_rec": 0.1619,
+      "tiles": 6
+    },
+    "physics_segformer_mitb0_v1": {
+      "water_iou": 0.1153,
+      "water_f1": 0.2067,
+      "water_prec": 0.3908,
+      "water_rec": 0.1405,
+      "tiles": 6
+    },
+    "unetplusplus_r50_v1": {
+      "water_iou": 0.1108,
+      "water_f1": 0.1995,
+      "water_prec": 0.2034,
+      "water_rec": 0.1958,
+      "tiles": 6
+    },
+    "manet_r50_v1": {
+      "water_iou": 0.1161,
+      "water_f1": 0.2081,
+      "water_prec": 0.2722,
+      "water_rec": 0.1684,
+      "tiles": 6
+    },
+    "pan_r50_v1": {
+      "water_iou": 0.102,
+      "water_f1": 0.1851,
+      "water_prec": 0.1645,
+      "water_rec": 0.2116,
+      "tiles": 6
+    }
+  },
+  "Sri-Lanka": {
+    "hf_sen1floods11_resnet34": {
+      "water_iou": 0.8857,
+      "water_f1": 0.9394,
+      "water_prec": 0.9669,
+      "water_rec": 0.9134,
+      "tiles": 9
+    },
+    "unet_r50_scratch_v1": {
+      "water_iou": 0.3083,
+      "water_f1": 0.4713,
+      "water_prec": 0.6904,
+      "water_rec": 0.3578,
+      "tiles": 9
+    },
+    "fpn_r50_v1": {
+      "water_iou": 0.4864,
+      "water_f1": 0.6545,
+      "water_prec": 0.7112,
+      "water_rec": 0.6061,
+      "tiles": 9
+    },
+    "physics_unet_r50_v1": {
+      "water_iou": 0.2418,
+      "water_f1": 0.3894,
+      "water_prec": 0.6329,
+      "water_rec": 0.2812,
+      "tiles": 9
+    },
+    "deeplabv3p_r50_v1": {
+      "water_iou": 0.459,
+      "water_f1": 0.6292,
+      "water_prec": 0.7024,
+      "water_rec": 0.5698,
+      "tiles": 9
+    },
+    "segformer_mitb0_v1": {
+      "water_iou": 0.1645,
+      "water_f1": 0.2826,
+      "water_prec": 0.8723,
+      "water_rec": 0.1686,
+      "tiles": 9
+    },
+    "physics_segformer_mitb0_v1": {
+      "water_iou": 0.0952,
+      "water_f1": 0.1738,
+      "water_prec": 0.8846,
+      "water_rec": 0.0964,
+      "tiles": 9
+    },
+    "unetplusplus_r50_v1": {
+      "water_iou": 0.2272,
+      "water_f1": 0.3703,
+      "water_prec": 0.5969,
+      "water_rec": 0.2684,
+      "tiles": 9
+    },
+    "manet_r50_v1": {
+      "water_iou": 0.2951,
+      "water_f1": 0.4557,
+      "water_prec": 0.8799,
+      "water_rec": 0.3075,
+      "tiles": 9
+    },
+    "pan_r50_v1": {
+      "water_iou": 0.4556,
+      "water_f1": 0.626,
+      "water_prec": 0.6448,
+      "water_rec": 0.6083,
+      "tiles": 9
+    }
+  }
+}

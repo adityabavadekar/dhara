@@ -1,0 +1,31 @@
+{
+  "single_models": {
+    "UNet++ R50": {
+      "tp": 47991,
+      "fp": 3959,
+      "fn": 2159
+    },
+    "Physics U-Net": {
+      "tp": 48281,
+      "fp": 5102,
+      "fn": 1869
+    },
+    "DeepLabV3+ R50": {
+      "tp": 48575,
+      "fp": 7008,
+      "fn": 1575
+    },
+    "SegFormer ViT": {
+      "tp": 48809,
+      "fp": 8234,
+      "fn": 1341
+    }
+  },
+  "ensemble": {
+    "recall": 0.9693,
+    "precision": 0.9071,
+    "iou": 0.8818,
+    "f1": 0.9372,
+    "mean_epistemic_uncertainty": 0.00475
+  }
+}

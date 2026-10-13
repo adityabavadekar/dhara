@@ -21,5 +21,6 @@ It uses only Sentinel-1/2, Copernicus DEM, pre-event OSM, and Kuro Siwo/Sen1Floo
 - Fail loudly with actionable messages. "Not observable" is never shown as "no damage".
 - Never invent numbers in code, docs or UI copy. Write TODO until a value is computed.
 - Never show images of victims. The UI and reports state that this is an educational prototype.
+- Abstract complexity from the UI: This application is for disaster researchers and emergency decision-makers. Never expose internal implementation details, algorithm mechanics (e.g. Dijkstra, raw graph internals), or backend AI provider/model IDs (e.g. "groq", "openai/gpt-oss-120b", "gemini") in user-facing UI copy or badges. Keep all UI terminology clean, professional, and domain-focused (e.g., "AI Assistant", "Grounded Evidence").
 - `project-clones/` is read-only reference material. Copy code from it; don't import it.
 - Don't commit unless the user asks.

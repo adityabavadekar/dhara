@@ -229,8 +229,13 @@ def _s1_members(tracks, cache, grid, in_aoi, prov, progress):
             post, shadow = post_all[:2], post_all[3]
             obs = in_aoi & np.isfinite(shadow) & (np.nan_to_num(shadow) == 0)
             obs_any |= obs
+            pre2 = (
+                _cached_pass(cache, pair.pre2, grid, "GAMMA0_TERRAIN", False)
+                if pair.pre2 is not None
+                else None
+            )
             cr = classical.run(pre, post, obs)
-            dr = debris.run(pre, post, obs, tile=cr.meta["tile_px"])
+            dr = debris.run(pre, post, obs, tile=cr.meta["tile_px"], pre2=pre2)
             water_maps.append(cr.p_flood)
             change_maps.append(dr.p_change)
             perm_water |= cr.permanent_water
@@ -525,6 +530,7 @@ def _run(spec: JobSpec, cache: Path, job_dir: Path, prov: Provenance, progress: 
         )
         iso.settlements.to_parquet(job_dir / "settlements.parquet")
         iso.failed_edges.to_parquet(job_dir / "failed_edges.parquet")
+        iso.hospitals.to_parquet(job_dir / "hospitals.parquet")
         (job_dir / "repairs.json").write_text(json.dumps(iso.repairs, indent=1))
         st.update(iso.meta)
         st["settlements"] = iso.settlements["status"].value_counts().to_dict()

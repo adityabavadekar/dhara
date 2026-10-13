@@ -37,3 +37,21 @@ def test_allowed_requests_pass():
 def test_disallowed_requests_fail(url, payload):
     with pytest.raises(ComplianceError):
         check_request(url, json=payload)
+
+
+def test_llm_hosts_blocked_unless_selected(monkeypatch):
+    from dhara.config import get_settings
+
+    monkeypatch.setenv("ASSISTANT_LLM", "off")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ComplianceError, match="ASSISTANT_LLM"):
+            check_request("https://api.groq.com/openai/v1/chat/completions")
+        monkeypatch.setenv("ASSISTANT_LLM", "groq")
+        monkeypatch.setenv("GROQ_API_KEY", "test-key")
+        get_settings.cache_clear()
+        check_request("https://api.groq.com/openai/v1/chat/completions")
+        with pytest.raises(ComplianceError):
+            check_request("https://api.openai.com/v1/chat/completions")
+    finally:
+        get_settings.cache_clear()

@@ -12,4 +12,8 @@ export default defineConfig({
     port: 5173,
     proxy: { '/api': { target: process.env.DHARA_API ?? 'http://127.0.0.1:8000', changeOrigin: true } },
   },
+  preview: {
+    port: 4173,
+    proxy: { '/api': { target: process.env.DHARA_API ?? 'http://127.0.0.1:8000', changeOrigin: true } },
+  },
 })

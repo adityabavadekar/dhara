@@ -3,6 +3,7 @@
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -28,6 +29,18 @@ class Settings(BaseSettings):
     cdse_s3_secret_key: SecretStr | None = None
     # ohsome API v2 key (free, https://account.heigit.org/signup). Without it: slow v1 fallback.
     ohsome_api_key: SecretStr | None = None
+    # Assistant language model. "auto" (default) uses the first provider with a key (Groq, Gemini,
+    # OpenAI) and "off" never calls one. Only the resolved provider's host passes the allowlist,
+    # and any model answer with a number not found in the job's results is discarded.
+    assistant_llm: Literal["auto", "off", "groq", "gemini", "openai"] = "auto"
+    groq_api_key: SecretStr | None = None
+    groq_model: str = "openai/gpt-oss-120b"
+    gemini_api_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY")
+    )
+    gemini_model: str = "gemini-1.5-flash"
+    openai_api_key: SecretStr | None = None
+    openai_model: str = "gpt-4o-mini"
 
     dhara_data_dir: Path = Path("data")
     dhara_max_aoi_km2: float = 2500.0
@@ -39,6 +52,20 @@ class Settings(BaseSettings):
 
     # Gray area (PLAN.md §3.3): foundation-model weights trained on non-listed data. Default OFF.
     allow_foundation_weights: bool = False
+
+    @property
+    def llm_provider(self) -> str:
+        """The assistant provider in use: "groq", "gemini", "openai" or "off"."""
+        keys = {
+            "groq": self.groq_api_key,
+            "gemini": self.gemini_api_key,
+            "openai": self.openai_api_key,
+        }
+        if self.assistant_llm == "auto":
+            return next((k for k, v in keys.items() if v), "off")
+        if self.assistant_llm == "off" or not keys[self.assistant_llm]:
+            return "off"
+        return self.assistant_llm
 
     @property
     def cache_dir(self) -> Path:

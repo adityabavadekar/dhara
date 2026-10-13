@@ -1,43 +1,23 @@
-import { Activity, Info, ListChecks, Map as MapIcon, Moon, Route, Sun } from 'lucide-react'
-import { useApp, type Section } from '@/context/app-state'
+import { useEffect, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { Bot, Moon, PanelLeftClose, PanelLeftOpen, Plus, Sun } from 'lucide-react'
+import { useApp } from '@/context/app-state'
 import { useTheme } from '@/context/theme-provider'
-import { Badge } from '@/components/ui/badge'
+import { api, type Polygon } from '@/lib/api'
 import { Button } from '@/components/ui/button'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarInset,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-  SidebarRail,
-  SidebarTrigger,
-} from '@/components/ui/sidebar'
+import { NewAnalysis } from '@/features/analyze/new-analysis'
+import { EventSwitcher } from '@/features/analyze/event-switcher'
+import { AssistantPanel } from '@/features/assistant/assistant-panel'
 import { MapView } from '@/features/map/map-view'
-import { AnalyzePanel } from '@/features/panels/analyze-panel'
-import { FlowPathPanel } from '@/features/panels/flowpath-panel'
-import { AboutPanel, JobsPanel } from '@/features/panels/jobs-about'
-import { ResultsPanel } from '@/features/panels/results-panel'
-
-const NAV: { id: Section; label: string; icon: typeof MapIcon; hint: string }[] = [
-  { id: 'analyze', label: 'Analyze', icon: MapIcon, hint: 'Area, date, run' },
-  { id: 'results', label: 'Results', icon: Activity, hint: 'Hazard, damage, isolation' },
-  { id: 'flowpath', label: 'Flow path', icon: Route, hint: 'Trace downstream' },
-  { id: 'jobs', label: 'Jobs', icon: ListChecks, hint: 'Recent runs' },
-  { id: 'about', label: 'About & data', icon: Info, hint: 'Inputs, limits, credits' },
-]
+import { AboutDialog } from '@/features/report/about-dialog'
+import { ReportDialog } from '@/features/report/report-dialog'
+import { Workspace } from '@/features/workspace/workspace'
+import { cn } from '@/lib/utils'
 
 function Logo() {
   return (
-    <svg viewBox='0 0 32 32' className='size-7 shrink-0' aria-hidden>
+    <svg viewBox='0 0 32 32' className='size-6 shrink-0' aria-hidden>
       <rect width='32' height='32' rx='7' className='fill-primary' />
       <path d='M7 20c4-6 7 2 11-3s4-6 7-5' stroke='#c27803' strokeWidth='3' fill='none' strokeLinecap='round' />
     </svg>
@@ -47,85 +27,88 @@ function Logo() {
 export function App() {
   const app = useApp()
   const { resolvedTheme, setTheme } = useTheme()
-  const current = NAV.find((n) => n.id === app.section)!
+  const [panelOpen, setPanelOpen] = useState(true)
+  const jobs = useQuery({ queryKey: ['jobs'], queryFn: api.jobs })
+  const opened = useRef(false)
+
+  // Open the latest finished analysis on first load, so the page starts with an answer.
+  useEffect(() => {
+    if (opened.current || app.jobId || !jobs.data) return
+    opened.current = true
+    const latest = jobs.data.find((j) => j.kind === 'analysis' && j.status === 'done')
+    if (latest) app.openJob(latest.id, (latest.request.aoi as Polygon) ?? null)
+    else app.setMode('new')
+  }, [jobs.data, app])
 
   return (
-    <SidebarProvider defaultOpen={false}>
-      <Sidebar collapsible='icon'>
-        <SidebarHeader>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton size='lg' className='pointer-events-none'>
-                <Logo />
-                <div className='grid flex-1 text-left leading-tight'>
-                  <span className='font-semibold'>Dhara</span>
-                  <span className='text-xs text-muted-foreground'>Flood damage & isolation</span>
-                </div>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarHeader>
-        <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupLabel>Workspace</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {NAV.map((n) => (
-                  <SidebarMenuItem key={n.id}>
-                    <SidebarMenuButton tooltip={n.label} isActive={app.section === n.id} onClick={() => app.setSection(n.id)}>
-                      <n.icon />
-                      <span>{n.label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
-        <SidebarFooter>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton tooltip='Theme' onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}>
-                {resolvedTheme === 'dark' ? <Sun /> : <Moon />}
-                <span>{resolvedTheme === 'dark' ? 'Light' : 'Dark'} theme</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarFooter>
-        <SidebarRail />
-      </Sidebar>
-
-      <SidebarInset className='h-svh overflow-hidden'>
-        <header className='flex h-12 shrink-0 items-center gap-2 border-b px-3'>
-          <SidebarTrigger />
-          <Separator orientation='vertical' className='h-5' />
-          <span className='text-sm font-medium'>{current.label}</span>
-          <span className='hidden text-xs text-muted-foreground sm:inline'>· {current.hint}</span>
-          <div className='ml-auto flex items-center gap-2'>
-            <Badge variant='outline' className='font-normal'>Educational prototype · not operational</Badge>
-            <Button variant='ghost' size='icon' className='size-8 md:hidden' onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}>
-              {resolvedTheme === 'dark' ? <Sun className='size-4' /> : <Moon className='size-4' />}
-            </Button>
-          </div>
-        </header>
-        <div className='flex min-h-0 flex-1 flex-col md:flex-row'>
-          <div className='relative min-h-[45vh] flex-1 md:min-h-0'>
-            <MapView />
-          </div>
-          <aside className='flex min-h-0 w-full flex-1 flex-col border-t bg-background md:w-[400px] md:flex-none md:border-t-0 md:border-l'>
-            {app.section === 'results' ? (
-              <ResultsPanel />
-            ) : (
-              <ScrollArea className='min-h-0 flex-1'>
-                {app.section === 'analyze' && <AnalyzePanel />}
-                {app.section === 'flowpath' && <FlowPathPanel />}
-                {app.section === 'jobs' && <JobsPanel />}
-                {app.section === 'about' && <AboutPanel />}
-              </ScrollArea>
-            )}
-          </aside>
+    <div className='flex h-svh w-screen flex-col overflow-hidden bg-background'>
+      <header className='z-20 flex h-12 shrink-0 items-center gap-2 border-b bg-background px-3'>
+        <Button
+          variant='ghost'
+          size='icon'
+          className='size-8'
+          onClick={() => setPanelOpen((o) => !o)}
+          title={panelOpen ? 'Hide panel' : 'Show panel'}
+        >
+          {panelOpen ? <PanelLeftClose className='size-4' /> : <PanelLeftOpen className='size-4' />}
+        </Button>
+        <div className='flex items-center gap-2'>
+          <Logo />
+          <span className='hidden text-sm font-semibold tracking-tight sm:inline'>Dhara</span>
         </div>
-      </SidebarInset>
-    </SidebarProvider>
+        <Separator orientation='vertical' className='mx-1 hidden h-5 sm:block' />
+        <EventSwitcher />
+        <Button
+          variant={app.mode === 'new' ? 'secondary' : 'ghost'}
+          size='sm'
+          className='hidden h-8 gap-1.5 px-2.5 text-xs sm:flex'
+          onClick={() => {
+            app.setMode('new')
+            setPanelOpen(true)
+          }}
+        >
+          <Plus className='size-3.5' /> New
+        </Button>
+
+        <div className='ml-auto flex shrink-0 items-center gap-0.5'>
+          <span className='mr-2 hidden text-[0.6875rem] text-muted-foreground lg:inline'>Educational prototype · not operational</span>
+          <ReportDialog />
+          <Button
+            variant={app.assistantOpen ? 'secondary' : 'ghost'}
+            size='sm'
+            className='h-8 gap-1.5 px-2.5 text-xs'
+            onClick={() => app.setAssistantOpen(!app.assistantOpen)}
+            aria-label='Assistant'
+          >
+            <Bot className='size-3.5' /> <span className='hidden md:inline'>Assistant</span>
+          </Button>
+          <AboutDialog />
+          <Button
+            variant='ghost'
+            size='icon'
+            className='size-8'
+            onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+            title='Toggle theme'
+          >
+            {resolvedTheme === 'dark' ? <Sun className='size-4' /> : <Moon className='size-4' />}
+          </Button>
+        </div>
+      </header>
+
+      <div className='relative flex min-h-0 flex-1 flex-col md:flex-row'>
+        <aside
+          className={cn(
+            'flex min-h-0 w-full flex-col border-b bg-background md:w-[25rem] md:flex-none md:border-r md:border-b-0',
+            panelOpen ? 'max-md:h-[55vh]' : 'hidden'
+          )}
+        >
+          {app.mode === 'new' ? <NewAnalysis /> : <Workspace />}
+        </aside>
+        <main className='relative min-h-[45vh] min-w-0 flex-1 md:min-h-0'>
+          <MapView />
+        </main>
+        <AssistantPanel />
+      </div>
+    </div>
   )
 }

@@ -13,9 +13,7 @@ import argparse
 import csv
 import io
 import json
-import subprocess
 import tarfile
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -41,7 +39,9 @@ def dem_stats(dem: np.ndarray) -> tuple[float, float]:
     return relief, slope
 
 
-def convert(tar_path: Path, out: Path, tag: str) -> int:
+def stream_convert(url: str, out: Path, tag: str, max_samples: int = 1500) -> int:
+    import urllib.request
+
     xs, ys, metas = [], [], []
     cur: dict[str, bytes] = {}
     cur_key = None
@@ -75,17 +75,20 @@ def convert(tar_path: Path, out: Path, tag: str) -> int:
             }
         )
 
-    with tarfile.open(tar_path) as t:
+    req = urllib.request.Request(url, headers={"User-Agent": "dhara/1.0"})
+    with urllib.request.urlopen(req) as resp, tarfile.open(fileobj=resp, mode="r|*") as t:
         for m in t:
             if not m.isfile():
                 continue
             key, field = m.name.split(".", 1)
             if key != cur_key:
                 flush()
+                if max_samples and len(xs) >= max_samples:
+                    break
                 cur, cur_key = {}, key
             f = t.extractfile(m)
-            assert f is not None
-            cur[field] = f.read()
+            if f is not None:
+                cur[field] = f.read()
         flush()
 
     np.save(out / f"{tag}_x.npy", np.stack(xs))
@@ -99,38 +102,32 @@ def convert(tar_path: Path, out: Path, tag: str) -> int:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--raw", default="/kaggle/tmp/ks_raw")
-    ap.add_argument("--out", default="/kaggle/tmp/ks_arr")
-    ap.add_argument("--splits", nargs="+", default=list(SHARDS))
-    ap.add_argument("--parallel", type=int, default=4, help="concurrent shard downloads")
+    ap.add_argument("--out", default="/tmp/ks_arr")
+    ap.add_argument("--splits", nargs="+", default=["train_GRD"])
+    ap.add_argument(
+        "--max-shards", type=int, default=1, help="maximum shards per split to download"
+    )
+    ap.add_argument(
+        "--max-samples", type=int, default=1500, help="max samples to extract per shard"
+    )
     args = ap.parse_args()
-    raw, out = Path(args.raw), Path(args.out)
-    raw.mkdir(parents=True, exist_ok=True)
+    out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     todo = [
         (split, i, f"{split}_{i:05d}")
         for split in args.splits
-        for i in range(SHARDS[split])
+        for i in range(min(SHARDS[split], args.max_shards))
         if not (out / f"{split}_{i:05d}_meta.csv").exists()
     ]
 
-    def download(job: tuple[str, int, str]) -> Path:
-        split, i, tag = job
-        tar, part = raw / f"{tag}.tar", raw / f"{tag}.tar.part"
-        if not tar.exists():
-            url = f"{HF}/{split}/shard-{i:05d}.tar"
-            subprocess.run(["curl", "-fL", "-C", "-", "-s", "-o", str(part), url], check=True)
-            part.rename(tar)
-        return tar
-
-    # Downloads run ahead in parallel; conversion stays sequential and in order (bounded RAM).
-    with ThreadPoolExecutor(args.parallel) as pool:
-        futures = [(job, pool.submit(download, job)) for job in todo]
-        for (_, _, tag), fut in futures:
-            tar = fut.result()
-            n = convert(tar, out, tag)
-            tar.unlink()
-            print(tag, n, "samples", flush=True)
+    for split, i, tag in todo:
+        url = f"{HF}/{split}/shard-{i:05d}.tar"
+        print(
+            f"Streaming {tag} directly from HuggingFace (up to {args.max_samples} samples)...",
+            flush=True,
+        )
+        n = stream_convert(url, out, tag, max_samples=args.max_samples)
+        print(f"{tag}: successfully extracted {n} samples directly into arrays.", flush=True)
 
 
 if __name__ == "__main__":

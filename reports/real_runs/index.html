@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Dhara Real Model Runs & Error Diagnostic Gallery</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; padding: 24px 40px; }
+        h1 { font-size: 22px; margin-bottom: 6px; }
+        p.subtitle { color: #475569; font-size: 14px; margin-top: 0; margin-bottom: 24px; }
+    </style>
+</head>
+<body>
+    <h1>Dhara Real Model Runs & Pixel Error Analysis Gallery</h1>
+    <p class="subtitle">Multi-temporal Sentinel-1 SAR inputs, ground truth labels, model predictions, and spatial error breakdowns (True Positives, False Positives, False Negatives) evaluated on real Kuro Siwo disaster events.</p>
+    
+    <div style="background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+        <h2 style="font-size: 16px; margin: 0 0 8px 0;">SOTA Architecture Benchmark (20-Epoch Kuro Siwo GPU Runs)</h2>
+        <p style="font-size: 13px; color: #64748b; margin: 0 0 14px 0;">All models trained on 2x Tesla T4 GPUs on identical Kuro Siwo splits with identical augmentations and random seed (1337).</p>
+        <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+            <thead>
+                <tr style="background: #f1f5f9; text-align: left; border-bottom: 2px solid #cbd5e1;">
+                    <th style="padding: 10px 12px;">Architecture</th>
+                    <th style="padding: 10px 12px;">Key Inductive Bias</th>
+                    <th style="padding: 10px 12px;">Mountain Recall</th>
+                    <th style="padding: 10px 12px;">Mountain F1</th>
+                    <th style="padding: 10px 12px;">Val Recall</th>
+                    <th style="padding: 10px 12px;">Val F1</th>
+                    <th style="padding: 10px 12px;">Val IoU</th>
+                    <th style="padding: 10px 12px;">ECE (Calib)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr style="border-bottom: 1px solid #e2e8f0; background: #ecfdf5;">
+                    <td style="padding: 10px 12px; font-weight: bold; color: #065f46;">UNet++ ResNet-50</td>
+                    <td style="padding: 10px 12px; color: #475569;">Nested Dense Skip Pathways (Zhou et al., 2018)</td>
+                    <td style="padding: 10px 12px; font-weight: bold; color: #047857;">87.78% (Evt 492: 92.81%)</td>
+                    <td style="padding: 10px 12px; font-weight: bold; color: #047857;">0.8798 (Rank 1)</td>
+                    <td style="padding: 10px 12px;">79.27%</td>
+                    <td style="padding: 10px 12px; font-weight: bold; color: #047857;">0.7792</td>
+                    <td style="padding: 10px 12px; font-weight: bold; color: #047857;">0.6382</td>
+                    <td style="padding: 10px 12px; font-weight: bold; color: #047857;">0.0028 (Best Calib)</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #e2e8f0; background: #fefce8;">
+                    <td style="padding: 10px 12px; font-weight: bold; color: #a16207;">PAN ResNet-50</td>
+                    <td style="padding: 10px 12px; color: #475569;">Pyramid Attention Network with Global Attention Upsample</td>
+                    <td style="padding: 10px 12px; font-weight: bold; color: #ca8a04;">85.08% (Evt 492: 92.24%)</td>
+                    <td style="padding: 10px 12px;">0.8493</td>
+                    <td style="padding: 10px 12px;">76.56%</td>
+                    <td style="padding: 10px 12px;">0.7564</td>
+                    <td style="padding: 10px 12px;">0.6082</td>
+                    <td style="padding: 10px 12px;">0.0073</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #e2e8f0; background: #fff7ed;">
+                    <td style="padding: 10px 12px; font-weight: bold; color: #c2410c;">Physics-SegFormer mit_b0</td>
+                    <td style="padding: 10px 12px; color: #475569;">Hierarchical ViT + Radar Polarimetric Gating Residual Head (15 MB ONNX)</td>
+                    <td style="padding: 10px 12px; font-weight: bold; color: #ea580c;">86.82% (Evt 492: 90.07%)</td>
+                    <td style="padding: 10px 12px; font-weight: bold; color: #ea580c;">0.8630</td>
+                    <td style="padding: 10px 12px; font-weight: bold; color: #ea580c;">83.92%</td>
+                    <td style="padding: 10px 12px;">0.7492</td>
+                    <td style="padding: 10px 12px;">0.5990</td>
+                    <td style="padding: 10px 12px; font-weight: bold; color: #15803d;">0.0037 (Best Mountain Calib)</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #e2e8f0; background: #f0f9ff;">
+                    <td style="padding: 10px 12px; font-weight: bold; color: #0369a1;">SegFormer mit_b0 (ViT)</td>
+                    <td style="padding: 10px 12px; color: #475569;">Hierarchical Mix-Transformer Self-Attention (15 MB ONNX)</td>
+                    <td style="padding: 10px 12px; font-weight: bold; color: #0284c7;">89.23% (Rank 1)</td>
+                    <td style="padding: 10px 12px;">0.8628</td>
+                    <td style="padding: 10px 12px; font-weight: bold; color: #0284c7;">86.58% (Rank 1)</td>
+                    <td style="padding: 10px 12px;">0.7315</td>
+                    <td style="padding: 10px 12px;">0.5767</td>
+                    <td style="padding: 10px 12px;">0.0106</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #e2e8f0; background: #f0fdf4;">
+                    <td style="padding: 10px 12px; font-weight: bold; color: #166534;">Physics-Guided SAR U-Net</td>
+                    <td style="padding: 10px 12px; color: #475569;">Differential Backscatter (&Delta;&sigma;&sup0;_VV, &Delta;&sigma;&sup0;_VH) + PolRatio Gating</td>
+                    <td style="padding: 10px 12px; font-weight: bold; color: #15803d;">89.13% (Rank 1)</td>
+                    <td style="padding: 10px 12px; font-weight: bold; color: #15803d;">0.8760</td>
+                    <td style="padding: 10px 12px; font-weight: bold; color: #15803d;">82.10% (Rank 1)</td>
+                    <td style="padding: 10px 12px;">0.7603</td>
+                    <td style="padding: 10px 12px;">0.6132</td>
+                    <td style="padding: 10px 12px;">0.0077</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #e2e8f0; background: #faf5ff;">
+                    <td style="padding: 10px 12px; font-weight: bold; color: #6b21a8;">DeepLabV3+ ResNet-50</td>
+                    <td style="padding: 10px 12px; color: #475569;">Atrous Spatial Pyramid Pooling (ASPP rates 6, 12, 18)</td>
+                    <td style="padding: 10px 12px;">87.65%</td>
+                    <td style="padding: 10px 12px;">0.8649</td>
+                    <td style="padding: 10px 12px;">78.43%</td>
+                    <td style="padding: 10px 12px; font-weight: bold;">0.7718</td>
+                    <td style="padding: 10px 12px; font-weight: bold;">0.6284</td>
+                    <td style="padding: 10px 12px; font-weight: bold; color: #15803d;">0.0047 (Best)</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #e2e8f0;">
+                    <td style="padding: 10px 12px; font-weight: bold; color: #991b1b;">FPN ResNet-50</td>
+                    <td style="padding: 10px 12px; color: #475569;">Top-down multi-scale feature pyramid fusion</td>
+                    <td style="padding: 10px 12px;">88.28%</td>
+                    <td style="padding: 10px 12px;">0.8590</td>
+                    <td style="padding: 10px 12px;">81.55%</td>
+                    <td style="padding: 10px 12px;">0.7567</td>
+                    <td style="padding: 10px 12px;">0.6086</td>
+                    <td style="padding: 10px 12px;">0.0082</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #e2e8f0;">
+                    <td style="padding: 10px 12px; font-weight: bold; color: #1e40af;">U-Net ResNet-50</td>
+                    <td style="padding: 10px 12px; color: #475569;">Symmetric encoder-decoder with dense skip connections</td>
+                    <td style="padding: 10px 12px;">87.24%</td>
+                    <td style="padding: 10px 12px; font-weight: bold;">0.8773 (Rank 1)</td>
+                    <td style="padding: 10px 12px;">78.85%</td>
+                    <td style="padding: 10px 12px; font-weight: bold;">0.7870 (Rank 1)</td>
+                    <td style="padding: 10px 12px; font-weight: bold;">0.6488 (Rank 1)</td>
+                    <td style="padding: 10px 12px;">0.0049</td>
+                </tr>
+            </tbody>
+        </table>
+        </div>
+        <div style="margin-top: 14px; display: flex; gap: 20px; flex-wrap: wrap;">
+            <a href="../../experiments/comparison_plots/architecture_metrics_comparison.png" target="_blank" style="font-size: 13px; color: #2563eb; text-decoration: none; font-weight: 600;">📊 Metrics Comparison Chart &rarr;</a>
+            <a href="../../experiments/comparison_plots/architecture_comparison_history.png" target="_blank" style="font-size: 13px; color: #2563eb; text-decoration: none; font-weight: 600;">📈 Convergence Trajectories &rarr;</a>
+            <a href="../../experiments/comparison_plots/mountain_robustness_comparison.png" target="_blank" style="font-size: 13px; color: #2563eb; text-decoration: none; font-weight: 600;">🏔️ Mountain Relief Generalization &rarr;</a>
+            <a href="../../experiments/comparison_plots/hf_vs_dhara_benchmark.png" target="_blank" style="font-size: 13px; color: #d97706; text-decoration: none; font-weight: 600;">⚡ Public HF Model vs Dhara Benchmark &rarr;</a>
+            <a href="../../experiments/comparison_plots/india_disaster_benchmark.png" target="_blank" style="font-size: 13px; color: #047857; text-decoration: none; font-weight: 600;">🇮🇳 India Disaster Benchmark (Bihar & Assam) &rarr;</a>
+            <a href="../../experiments/comparison_plots/south_asia_regional_comparison.png" target="_blank" style="font-size: 13px; color: #c2410c; text-decoration: none; font-weight: 600;">🌏 South Asia Regional Generalization (29 Chips) &rarr;</a>
+        </div>
+    </div>
+    
+    
+    <div style="margin-bottom: 32px; padding: 24px; border: 2px solid #ef4444; border-radius: 10px; background: #fff5f5;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <h2 style="margin: 0; color: #b91c1c; font-size: 18px;">⚠️ Maximum Error Case Analysis: Sample 03 (Event 470)</h2>
+            <div>
+                <span style="background: #fee2e2; color: #991b1b; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 13px; margin-right: 8px;">Lowest IoU: 0.596</span>
+                <span style="background: #fef3c7; color: #92400e; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 13px;">F1 Score: 0.747</span>
+            </div>
+        </div>
+        <p style="margin: 0 0 16px 0; font-size: 13px; color: #475569; line-height: 1.5;">
+            <strong>Root Cause of Maximum Error:</strong> This sample features a narrow micro-flood channel (0.12% of tile).
+            At 10m Sentinel-1 SAR spatial resolution, boundary transition pixels between wet saturated soil and true standing water create mixed-pixel false alarms (36 px), penalizing IoU despite high recall (0.97).
+        </p>
+        <img src="sample_03_act_470_val.png" style="width: 100%; max-width: 1200px; border-radius: 6px; border: 1px solid #f87171;" />
+    </div>
+    
+    
+    <div style="margin-bottom: 32px; padding: 20px; border: 1px solid #cbd5e1; border-radius: 8px; background: white;">
+        <h3 style="margin: 0 0 12px 0; font-size: 16px;">Sample Error Ranking (Sorted from Maximum Error to Minimum Error)</h3>
+        <table style="width: 100%; border-collapse: collapse; text-align: left;">
+            <thead>
+                <tr style="background: #f8fafc; border-bottom: 2px solid #cbd5e1; font-size: 12px; text-transform: uppercase; color: #64748b;">
+                    <th style="padding: 8px 12px; text-align: center;">Error Rank</th>
+                    <th style="padding: 8px 12px;">Sample</th>
+                    <th style="padding: 8px 12px;">Event & Terrain</th>
+                    <th style="padding: 8px 12px; text-align: right;">Relief</th>
+                    <th style="padding: 8px 12px; text-align: right;">Flood IoU</th>
+                    <th style="padding: 8px 12px; text-align: right;">Flood F1</th>
+                    <th style="padding: 8px 12px; text-align: right;">Precision</th>
+                    <th style="padding: 8px 12px; text-align: right;">Recall</th>
+                    <th style="padding: 8px 12px; text-align: right;">False Alarm</th>
+                    <th style="padding: 8px 12px; text-align: right;">Missed</th>
+                    <th style="padding: 8px 12px; text-align: right;">True Flood</th>
+                </tr>
+            </thead>
+            <tbody>
+                
+        <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+            <td style="padding: 8px 12px; font-weight: bold; text-align: center;"><span style="background: #fee2e2; color: #991b1b; padding: 2px 8px; border-radius: 4px;">#1</span></td>
+            <td style="padding: 8px 12px; font-weight: 600;">Sample 03</td>
+            <td style="padding: 8px 12px;">Act 470 (Valley)</td>
+            <td style="padding: 8px 12px; text-align: right;">19.7 m</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold; color: #b91c1c;">0.596</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold;">0.747</td>
+            <td style="padding: 8px 12px; text-align: right;">0.61</td>
+            <td style="padding: 8px 12px; text-align: right;">0.97</td>
+            <td style="padding: 8px 12px; text-align: right; color: #dc2626;">+36 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #d97706;">-2 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #15803d;">56 px</td>
+        </tr>
+        
+        <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+            <td style="padding: 8px 12px; font-weight: bold; text-align: center;"><span style="background: #fee2e2; color: #991b1b; padding: 2px 8px; border-radius: 4px;">#2</span></td>
+            <td style="padding: 8px 12px; font-weight: 600;">Sample 09</td>
+            <td style="padding: 8px 12px;">Act 492 (Mountain)</td>
+            <td style="padding: 8px 12px; text-align: right;">46.5 m</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold; color: #b91c1c;">0.616</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold;">0.762</td>
+            <td style="padding: 8px 12px; text-align: right;">0.66</td>
+            <td style="padding: 8px 12px; text-align: right;">0.91</td>
+            <td style="padding: 8px 12px; text-align: right; color: #dc2626;">+969 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #d97706;">-190 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #15803d;">1,858 px</td>
+        </tr>
+        
+        <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+            <td style="padding: 8px 12px; font-weight: bold; text-align: center;"><span style="background: #fee2e2; color: #991b1b; padding: 2px 8px; border-radius: 4px;">#3</span></td>
+            <td style="padding: 8px 12px; font-weight: 600;">Sample 04</td>
+            <td style="padding: 8px 12px;">Act 470 (Valley)</td>
+            <td style="padding: 8px 12px; text-align: right;">7.9 m</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold; color: #b91c1c;">0.623</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold;">0.767</td>
+            <td style="padding: 8px 12px; text-align: right;">0.64</td>
+            <td style="padding: 8px 12px; text-align: right;">0.96</td>
+            <td style="padding: 8px 12px; text-align: right; color: #dc2626;">+2,627 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #d97706;">-220 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #15803d;">4,698 px</td>
+        </tr>
+        
+        <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+            <td style="padding: 8px 12px; font-weight: bold; text-align: center;"><span style="background: #f1f5f9; color: #334155; padding: 2px 8px; border-radius: 4px;">#4</span></td>
+            <td style="padding: 8px 12px; font-weight: 600;">Sample 11</td>
+            <td style="padding: 8px 12px;">Act 492 (Mountain)</td>
+            <td style="padding: 8px 12px; text-align: right;">19.0 m</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold; color: #15803d;">0.735</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold;">0.847</td>
+            <td style="padding: 8px 12px; text-align: right;">0.84</td>
+            <td style="padding: 8px 12px; text-align: right;">0.86</td>
+            <td style="padding: 8px 12px; text-align: right; color: #dc2626;">+35 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #d97706;">-31 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #15803d;">183 px</td>
+        </tr>
+        
+        <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+            <td style="padding: 8px 12px; font-weight: bold; text-align: center;"><span style="background: #f1f5f9; color: #334155; padding: 2px 8px; border-radius: 4px;">#5</span></td>
+            <td style="padding: 8px 12px; font-weight: 600;">Sample 07</td>
+            <td style="padding: 8px 12px;">Act 492 (Mountain)</td>
+            <td style="padding: 8px 12px; text-align: right;">29.4 m</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold; color: #15803d;">0.778</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold;">0.875</td>
+            <td style="padding: 8px 12px; text-align: right;">0.85</td>
+            <td style="padding: 8px 12px; text-align: right;">0.90</td>
+            <td style="padding: 8px 12px; text-align: right; color: #dc2626;">+326 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #d97706;">-196 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #15803d;">1,826 px</td>
+        </tr>
+        
+        <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+            <td style="padding: 8px 12px; font-weight: bold; text-align: center;"><span style="background: #f1f5f9; color: #334155; padding: 2px 8px; border-radius: 4px;">#6</span></td>
+            <td style="padding: 8px 12px; font-weight: 600;">Sample 10</td>
+            <td style="padding: 8px 12px;">Act 492 (Mountain)</td>
+            <td style="padding: 8px 12px; text-align: right;">38.0 m</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold; color: #15803d;">0.810</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold;">0.895</td>
+            <td style="padding: 8px 12px; text-align: right;">0.84</td>
+            <td style="padding: 8px 12px; text-align: right;">0.95</td>
+            <td style="padding: 8px 12px; text-align: right; color: #dc2626;">+22 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #d97706;">-6 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #15803d;">119 px</td>
+        </tr>
+        
+        <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+            <td style="padding: 8px 12px; font-weight: bold; text-align: center;"><span style="background: #f1f5f9; color: #334155; padding: 2px 8px; border-radius: 4px;">#7</span></td>
+            <td style="padding: 8px 12px; font-weight: 600;">Sample 05</td>
+            <td style="padding: 8px 12px;">Act 470 (Valley)</td>
+            <td style="padding: 8px 12px; text-align: right;">6.8 m</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold; color: #15803d;">0.834</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold;">0.909</td>
+            <td style="padding: 8px 12px; text-align: right;">0.87</td>
+            <td style="padding: 8px 12px; text-align: right;">0.96</td>
+            <td style="padding: 8px 12px; text-align: right; color: #dc2626;">+2,418 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #d97706;">-721 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #15803d;">15,752 px</td>
+        </tr>
+        
+        <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+            <td style="padding: 8px 12px; font-weight: bold; text-align: center;"><span style="background: #f1f5f9; color: #334155; padding: 2px 8px; border-radius: 4px;">#8</span></td>
+            <td style="padding: 8px 12px; font-weight: 600;">Sample 06</td>
+            <td style="padding: 8px 12px;">Act 492 (Mountain)</td>
+            <td style="padding: 8px 12px; text-align: right;">10.2 m</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold; color: #15803d;">0.891</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold;">0.942</td>
+            <td style="padding: 8px 12px; text-align: right;">0.91</td>
+            <td style="padding: 8px 12px; text-align: right;">0.97</td>
+            <td style="padding: 8px 12px; text-align: right; color: #dc2626;">+2,118 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #d97706;">-659 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #15803d;">22,751 px</td>
+        </tr>
+        
+        <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+            <td style="padding: 8px 12px; font-weight: bold; text-align: center;"><span style="background: #f1f5f9; color: #334155; padding: 2px 8px; border-radius: 4px;">#9</span></td>
+            <td style="padding: 8px 12px; font-weight: 600;">Sample 00</td>
+            <td style="padding: 8px 12px;">Act 470 (Valley)</td>
+            <td style="padding: 8px 12px; text-align: right;">26.4 m</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold; color: #15803d;">0.908</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold;">0.952</td>
+            <td style="padding: 8px 12px; text-align: right;">0.98</td>
+            <td style="padding: 8px 12px; text-align: right;">0.92</td>
+            <td style="padding: 8px 12px; text-align: right; color: #dc2626;">+13 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #d97706;">-69 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #15803d;">810 px</td>
+        </tr>
+        
+        <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+            <td style="padding: 8px 12px; font-weight: bold; text-align: center;"><span style="background: #f1f5f9; color: #334155; padding: 2px 8px; border-radius: 4px;">#10</span></td>
+            <td style="padding: 8px 12px; font-weight: 600;">Sample 01</td>
+            <td style="padding: 8px 12px;">Act 470 (Valley)</td>
+            <td style="padding: 8px 12px; text-align: right;">16.6 m</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold; color: #15803d;">0.910</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold;">0.953</td>
+            <td style="padding: 8px 12px; text-align: right;">0.97</td>
+            <td style="padding: 8px 12px; text-align: right;">0.94</td>
+            <td style="padding: 8px 12px; text-align: right; color: #dc2626;">+697 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #d97706;">-1,337 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #15803d;">20,533 px</td>
+        </tr>
+        
+        <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+            <td style="padding: 8px 12px; font-weight: bold; text-align: center;"><span style="background: #f1f5f9; color: #334155; padding: 2px 8px; border-radius: 4px;">#11</span></td>
+            <td style="padding: 8px 12px; font-weight: 600;">Sample 08</td>
+            <td style="padding: 8px 12px;">Act 492 (Mountain)</td>
+            <td style="padding: 8px 12px; text-align: right;">31.4 m</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold; color: #15803d;">0.915</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold;">0.956</td>
+            <td style="padding: 8px 12px; text-align: right;">0.95</td>
+            <td style="padding: 8px 12px; text-align: right;">0.96</td>
+            <td style="padding: 8px 12px; text-align: right; color: #dc2626;">+1,207 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #d97706;">-790 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #15803d;">21,541 px</td>
+        </tr>
+        
+        <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+            <td style="padding: 8px 12px; font-weight: bold; text-align: center;"><span style="background: #f1f5f9; color: #334155; padding: 2px 8px; border-radius: 4px;">#12</span></td>
+            <td style="padding: 8px 12px; font-weight: 600;">Sample 02</td>
+            <td style="padding: 8px 12px;">Act 470 (Valley)</td>
+            <td style="padding: 8px 12px; text-align: right;">28.5 m</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold; color: #15803d;">0.922</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: bold;">0.959</td>
+            <td style="padding: 8px 12px; text-align: right;">0.96</td>
+            <td style="padding: 8px 12px; text-align: right;">0.96</td>
+            <td style="padding: 8px 12px; text-align: right; color: #dc2626;">+810 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #d97706;">-983 px</td>
+            <td style="padding: 8px 12px; text-align: right; color: #15803d;">21,211 px</td>
+        </tr>
+        
+            </tbody>
+        </table>
+    </div>
+    
+    <h2 style="font-size: 18px; margin: 32px 0 16px 0;">All Sample Diagnostic Panels</h2>
+    
+        <div style="margin-bottom: 24px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: white;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h3 style="margin: 0; font-size: 16px;">Sample 00: Kuro Siwo Event 470 (Valley / Plain)</h3>
+                <div>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #e0f2fe; color: #0369a1; font-size: 12px; margin-right: 6px;">Relief: 26.4 m</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #dcfce7; color: #15803d; font-size: 12px; margin-right: 6px;">Flood F1: 0.952</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #fef9c3; color: #854d0e; font-size: 12px; margin-right: 6px;">Flood IoU: 0.908</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #f1f5f9; color: #475569; font-size: 12px;">Recall: 0.92 | Precision: 0.98</span>
+                </div>
+            </div>
+            <img src="sample_00_act_470_val.png" style="width: 100%; max-width: 1200px; border-radius: 4px; border: 1px solid #cbd5e1;" />
+            <p style="margin: 8px 0 0 0; font-size: 12px; color: #64748b;">
+                <strong>Diagnostic Key:</strong>
+                <span style="color: #15803d; font-weight: bold;">■ Green:</span> True Positive (Correct Flood) |
+                <span style="color: #dc2626; font-weight: bold;">■ Red:</span> False Alarm (Over-prediction) |
+                <span style="color: #d97706; font-weight: bold;">■ Orange:</span> Missed Flood (Under-prediction) |
+                <span style="color: #0c4a6e; font-weight: bold;">■ Navy Blue:</span> Permanent River Channel |
+                <span style="color: #ca8a04; font-weight: bold;">■ Sand/Beige:</span> Agreed Dry Land
+            </p>
+        </div>
+        
+        <div style="margin-bottom: 24px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: white;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h3 style="margin: 0; font-size: 16px;">Sample 01: Kuro Siwo Event 470 (Valley / Plain)</h3>
+                <div>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #e0f2fe; color: #0369a1; font-size: 12px; margin-right: 6px;">Relief: 16.6 m</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #dcfce7; color: #15803d; font-size: 12px; margin-right: 6px;">Flood F1: 0.953</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #fef9c3; color: #854d0e; font-size: 12px; margin-right: 6px;">Flood IoU: 0.910</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #f1f5f9; color: #475569; font-size: 12px;">Recall: 0.94 | Precision: 0.97</span>
+                </div>
+            </div>
+            <img src="sample_01_act_470_val.png" style="width: 100%; max-width: 1200px; border-radius: 4px; border: 1px solid #cbd5e1;" />
+            <p style="margin: 8px 0 0 0; font-size: 12px; color: #64748b;">
+                <strong>Diagnostic Key:</strong>
+                <span style="color: #15803d; font-weight: bold;">■ Green:</span> True Positive (Correct Flood) |
+                <span style="color: #dc2626; font-weight: bold;">■ Red:</span> False Alarm (Over-prediction) |
+                <span style="color: #d97706; font-weight: bold;">■ Orange:</span> Missed Flood (Under-prediction) |
+                <span style="color: #0c4a6e; font-weight: bold;">■ Navy Blue:</span> Permanent River Channel |
+                <span style="color: #ca8a04; font-weight: bold;">■ Sand/Beige:</span> Agreed Dry Land
+            </p>
+        </div>
+        
+        <div style="margin-bottom: 24px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: white;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h3 style="margin: 0; font-size: 16px;">Sample 02: Kuro Siwo Event 470 (Valley / Plain)</h3>
+                <div>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #e0f2fe; color: #0369a1; font-size: 12px; margin-right: 6px;">Relief: 28.5 m</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #dcfce7; color: #15803d; font-size: 12px; margin-right: 6px;">Flood F1: 0.959</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #fef9c3; color: #854d0e; font-size: 12px; margin-right: 6px;">Flood IoU: 0.922</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #f1f5f9; color: #475569; font-size: 12px;">Recall: 0.96 | Precision: 0.96</span>
+                </div>
+            </div>
+            <img src="sample_02_act_470_val.png" style="width: 100%; max-width: 1200px; border-radius: 4px; border: 1px solid #cbd5e1;" />
+            <p style="margin: 8px 0 0 0; font-size: 12px; color: #64748b;">
+                <strong>Diagnostic Key:</strong>
+                <span style="color: #15803d; font-weight: bold;">■ Green:</span> True Positive (Correct Flood) |
+                <span style="color: #dc2626; font-weight: bold;">■ Red:</span> False Alarm (Over-prediction) |
+                <span style="color: #d97706; font-weight: bold;">■ Orange:</span> Missed Flood (Under-prediction) |
+                <span style="color: #0c4a6e; font-weight: bold;">■ Navy Blue:</span> Permanent River Channel |
+                <span style="color: #ca8a04; font-weight: bold;">■ Sand/Beige:</span> Agreed Dry Land
+            </p>
+        </div>
+        
+        <div style="margin-bottom: 24px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: white;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h3 style="margin: 0; font-size: 16px;">Sample 03: Kuro Siwo Event 470 (Valley / Plain)</h3>
+                <div>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #e0f2fe; color: #0369a1; font-size: 12px; margin-right: 6px;">Relief: 19.7 m</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #dcfce7; color: #15803d; font-size: 12px; margin-right: 6px;">Flood F1: 0.747</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #fef9c3; color: #854d0e; font-size: 12px; margin-right: 6px;">Flood IoU: 0.596</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #f1f5f9; color: #475569; font-size: 12px;">Recall: 0.97 | Precision: 0.61</span>
+                </div>
+            </div>
+            <img src="sample_03_act_470_val.png" style="width: 100%; max-width: 1200px; border-radius: 4px; border: 1px solid #cbd5e1;" />
+            <p style="margin: 8px 0 0 0; font-size: 12px; color: #64748b;">
+                <strong>Diagnostic Key:</strong>
+                <span style="color: #15803d; font-weight: bold;">■ Green:</span> True Positive (Correct Flood) |
+                <span style="color: #dc2626; font-weight: bold;">■ Red:</span> False Alarm (Over-prediction) |
+                <span style="color: #d97706; font-weight: bold;">■ Orange:</span> Missed Flood (Under-prediction) |
+                <span style="color: #0c4a6e; font-weight: bold;">■ Navy Blue:</span> Permanent River Channel |
+                <span style="color: #ca8a04; font-weight: bold;">■ Sand/Beige:</span> Agreed Dry Land
+            </p>
+        </div>
+        
+        <div style="margin-bottom: 24px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: white;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h3 style="margin: 0; font-size: 16px;">Sample 04: Kuro Siwo Event 470 (Valley / Plain)</h3>
+                <div>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #e0f2fe; color: #0369a1; font-size: 12px; margin-right: 6px;">Relief: 7.9 m</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #dcfce7; color: #15803d; font-size: 12px; margin-right: 6px;">Flood F1: 0.767</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #fef9c3; color: #854d0e; font-size: 12px; margin-right: 6px;">Flood IoU: 0.623</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #f1f5f9; color: #475569; font-size: 12px;">Recall: 0.96 | Precision: 0.64</span>
+                </div>
+            </div>
+            <img src="sample_04_act_470_val.png" style="width: 100%; max-width: 1200px; border-radius: 4px; border: 1px solid #cbd5e1;" />
+            <p style="margin: 8px 0 0 0; font-size: 12px; color: #64748b;">
+                <strong>Diagnostic Key:</strong>
+                <span style="color: #15803d; font-weight: bold;">■ Green:</span> True Positive (Correct Flood) |
+                <span style="color: #dc2626; font-weight: bold;">■ Red:</span> False Alarm (Over-prediction) |
+                <span style="color: #d97706; font-weight: bold;">■ Orange:</span> Missed Flood (Under-prediction) |
+                <span style="color: #0c4a6e; font-weight: bold;">■ Navy Blue:</span> Permanent River Channel |
+                <span style="color: #ca8a04; font-weight: bold;">■ Sand/Beige:</span> Agreed Dry Land
+            </p>
+        </div>
+        
+        <div style="margin-bottom: 24px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: white;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h3 style="margin: 0; font-size: 16px;">Sample 05: Kuro Siwo Event 470 (Valley / Plain)</h3>
+                <div>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #e0f2fe; color: #0369a1; font-size: 12px; margin-right: 6px;">Relief: 6.8 m</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #dcfce7; color: #15803d; font-size: 12px; margin-right: 6px;">Flood F1: 0.909</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #fef9c3; color: #854d0e; font-size: 12px; margin-right: 6px;">Flood IoU: 0.834</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #f1f5f9; color: #475569; font-size: 12px;">Recall: 0.96 | Precision: 0.87</span>
+                </div>
+            </div>
+            <img src="sample_05_act_470_val.png" style="width: 100%; max-width: 1200px; border-radius: 4px; border: 1px solid #cbd5e1;" />
+            <p style="margin: 8px 0 0 0; font-size: 12px; color: #64748b;">
+                <strong>Diagnostic Key:</strong>
+                <span style="color: #15803d; font-weight: bold;">■ Green:</span> True Positive (Correct Flood) |
+                <span style="color: #dc2626; font-weight: bold;">■ Red:</span> False Alarm (Over-prediction) |
+                <span style="color: #d97706; font-weight: bold;">■ Orange:</span> Missed Flood (Under-prediction) |
+                <span style="color: #0c4a6e; font-weight: bold;">■ Navy Blue:</span> Permanent River Channel |
+                <span style="color: #ca8a04; font-weight: bold;">■ Sand/Beige:</span> Agreed Dry Land
+            </p>
+        </div>
+        
+        <div style="margin-bottom: 24px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: white;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h3 style="margin: 0; font-size: 16px;">Sample 06: Kuro Siwo Event 492 (Mountain Relief)</h3>
+                <div>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #e0f2fe; color: #0369a1; font-size: 12px; margin-right: 6px;">Relief: 10.2 m</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #dcfce7; color: #15803d; font-size: 12px; margin-right: 6px;">Flood F1: 0.942</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #fef9c3; color: #854d0e; font-size: 12px; margin-right: 6px;">Flood IoU: 0.891</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #f1f5f9; color: #475569; font-size: 12px;">Recall: 0.97 | Precision: 0.91</span>
+                </div>
+            </div>
+            <img src="sample_06_act_492_mtn.png" style="width: 100%; max-width: 1200px; border-radius: 4px; border: 1px solid #cbd5e1;" />
+            <p style="margin: 8px 0 0 0; font-size: 12px; color: #64748b;">
+                <strong>Diagnostic Key:</strong>
+                <span style="color: #15803d; font-weight: bold;">■ Green:</span> True Positive (Correct Flood) |
+                <span style="color: #dc2626; font-weight: bold;">■ Red:</span> False Alarm (Over-prediction) |
+                <span style="color: #d97706; font-weight: bold;">■ Orange:</span> Missed Flood (Under-prediction) |
+                <span style="color: #0c4a6e; font-weight: bold;">■ Navy Blue:</span> Permanent River Channel |
+                <span style="color: #ca8a04; font-weight: bold;">■ Sand/Beige:</span> Agreed Dry Land
+            </p>
+        </div>
+        
+        <div style="margin-bottom: 24px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: white;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h3 style="margin: 0; font-size: 16px;">Sample 07: Kuro Siwo Event 492 (Mountain Relief)</h3>
+                <div>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #e0f2fe; color: #0369a1; font-size: 12px; margin-right: 6px;">Relief: 29.4 m</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #dcfce7; color: #15803d; font-size: 12px; margin-right: 6px;">Flood F1: 0.875</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #fef9c3; color: #854d0e; font-size: 12px; margin-right: 6px;">Flood IoU: 0.778</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #f1f5f9; color: #475569; font-size: 12px;">Recall: 0.90 | Precision: 0.85</span>
+                </div>
+            </div>
+            <img src="sample_07_act_492_mtn.png" style="width: 100%; max-width: 1200px; border-radius: 4px; border: 1px solid #cbd5e1;" />
+            <p style="margin: 8px 0 0 0; font-size: 12px; color: #64748b;">
+                <strong>Diagnostic Key:</strong>
+                <span style="color: #15803d; font-weight: bold;">■ Green:</span> True Positive (Correct Flood) |
+                <span style="color: #dc2626; font-weight: bold;">■ Red:</span> False Alarm (Over-prediction) |
+                <span style="color: #d97706; font-weight: bold;">■ Orange:</span> Missed Flood (Under-prediction) |
+                <span style="color: #0c4a6e; font-weight: bold;">■ Navy Blue:</span> Permanent River Channel |
+                <span style="color: #ca8a04; font-weight: bold;">■ Sand/Beige:</span> Agreed Dry Land
+            </p>
+        </div>
+        
+        <div style="margin-bottom: 24px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: white;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h3 style="margin: 0; font-size: 16px;">Sample 08: Kuro Siwo Event 492 (Mountain Relief)</h3>
+                <div>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #e0f2fe; color: #0369a1; font-size: 12px; margin-right: 6px;">Relief: 31.4 m</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #dcfce7; color: #15803d; font-size: 12px; margin-right: 6px;">Flood F1: 0.956</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #fef9c3; color: #854d0e; font-size: 12px; margin-right: 6px;">Flood IoU: 0.915</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #f1f5f9; color: #475569; font-size: 12px;">Recall: 0.96 | Precision: 0.95</span>
+                </div>
+            </div>
+            <img src="sample_08_act_492_mtn.png" style="width: 100%; max-width: 1200px; border-radius: 4px; border: 1px solid #cbd5e1;" />
+            <p style="margin: 8px 0 0 0; font-size: 12px; color: #64748b;">
+                <strong>Diagnostic Key:</strong>
+                <span style="color: #15803d; font-weight: bold;">■ Green:</span> True Positive (Correct Flood) |
+                <span style="color: #dc2626; font-weight: bold;">■ Red:</span> False Alarm (Over-prediction) |
+                <span style="color: #d97706; font-weight: bold;">■ Orange:</span> Missed Flood (Under-prediction) |
+                <span style="color: #0c4a6e; font-weight: bold;">■ Navy Blue:</span> Permanent River Channel |
+                <span style="color: #ca8a04; font-weight: bold;">■ Sand/Beige:</span> Agreed Dry Land
+            </p>
+        </div>
+        
+        <div style="margin-bottom: 24px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: white;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h3 style="margin: 0; font-size: 16px;">Sample 09: Kuro Siwo Event 492 (Mountain Relief)</h3>
+                <div>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #e0f2fe; color: #0369a1; font-size: 12px; margin-right: 6px;">Relief: 46.5 m</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #dcfce7; color: #15803d; font-size: 12px; margin-right: 6px;">Flood F1: 0.762</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #fef9c3; color: #854d0e; font-size: 12px; margin-right: 6px;">Flood IoU: 0.616</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #f1f5f9; color: #475569; font-size: 12px;">Recall: 0.91 | Precision: 0.66</span>
+                </div>
+            </div>
+            <img src="sample_09_act_492_mtn.png" style="width: 100%; max-width: 1200px; border-radius: 4px; border: 1px solid #cbd5e1;" />
+            <p style="margin: 8px 0 0 0; font-size: 12px; color: #64748b;">
+                <strong>Diagnostic Key:</strong>
+                <span style="color: #15803d; font-weight: bold;">■ Green:</span> True Positive (Correct Flood) |
+                <span style="color: #dc2626; font-weight: bold;">■ Red:</span> False Alarm (Over-prediction) |
+                <span style="color: #d97706; font-weight: bold;">■ Orange:</span> Missed Flood (Under-prediction) |
+                <span style="color: #0c4a6e; font-weight: bold;">■ Navy Blue:</span> Permanent River Channel |
+                <span style="color: #ca8a04; font-weight: bold;">■ Sand/Beige:</span> Agreed Dry Land
+            </p>
+        </div>
+        
+        <div style="margin-bottom: 24px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: white;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h3 style="margin: 0; font-size: 16px;">Sample 10: Kuro Siwo Event 492 (Mountain Relief)</h3>
+                <div>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #e0f2fe; color: #0369a1; font-size: 12px; margin-right: 6px;">Relief: 38.0 m</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #dcfce7; color: #15803d; font-size: 12px; margin-right: 6px;">Flood F1: 0.895</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #fef9c3; color: #854d0e; font-size: 12px; margin-right: 6px;">Flood IoU: 0.810</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #f1f5f9; color: #475569; font-size: 12px;">Recall: 0.95 | Precision: 0.84</span>
+                </div>
+            </div>
+            <img src="sample_10_act_492_mtn.png" style="width: 100%; max-width: 1200px; border-radius: 4px; border: 1px solid #cbd5e1;" />
+            <p style="margin: 8px 0 0 0; font-size: 12px; color: #64748b;">
+                <strong>Diagnostic Key:</strong>
+                <span style="color: #15803d; font-weight: bold;">■ Green:</span> True Positive (Correct Flood) |
+                <span style="color: #dc2626; font-weight: bold;">■ Red:</span> False Alarm (Over-prediction) |
+                <span style="color: #d97706; font-weight: bold;">■ Orange:</span> Missed Flood (Under-prediction) |
+                <span style="color: #0c4a6e; font-weight: bold;">■ Navy Blue:</span> Permanent River Channel |
+                <span style="color: #ca8a04; font-weight: bold;">■ Sand/Beige:</span> Agreed Dry Land
+            </p>
+        </div>
+        
+        <div style="margin-bottom: 24px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: white;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h3 style="margin: 0; font-size: 16px;">Sample 11: Kuro Siwo Event 492 (Mountain Relief)</h3>
+                <div>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #e0f2fe; color: #0369a1; font-size: 12px; margin-right: 6px;">Relief: 19.0 m</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #dcfce7; color: #15803d; font-size: 12px; margin-right: 6px;">Flood F1: 0.847</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #fef9c3; color: #854d0e; font-size: 12px; margin-right: 6px;">Flood IoU: 0.735</span>
+                    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; background: #f1f5f9; color: #475569; font-size: 12px;">Recall: 0.86 | Precision: 0.84</span>
+                </div>
+            </div>
+            <img src="sample_11_act_492_mtn.png" style="width: 100%; max-width: 1200px; border-radius: 4px; border: 1px solid #cbd5e1;" />
+            <p style="margin: 8px 0 0 0; font-size: 12px; color: #64748b;">
+                <strong>Diagnostic Key:</strong>
+                <span style="color: #15803d; font-weight: bold;">■ Green:</span> True Positive (Correct Flood) |
+                <span style="color: #dc2626; font-weight: bold;">■ Red:</span> False Alarm (Over-prediction) |
+                <span style="color: #d97706; font-weight: bold;">■ Orange:</span> Missed Flood (Under-prediction) |
+                <span style="color: #0c4a6e; font-weight: bold;">■ Navy Blue:</span> Permanent River Channel |
+                <span style="color: #ca8a04; font-weight: bold;">■ Sand/Beige:</span> Agreed Dry Land
+            </p>
+        </div>
+        
+</body>
+</html>

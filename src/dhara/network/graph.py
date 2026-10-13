@@ -24,6 +24,7 @@ from typing import TypedDict
 
 import geopandas as gpd
 import numpy as np
+from pyproj import Transformer
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components, dijkstra
 from scipy.spatial import KDTree
@@ -232,6 +233,7 @@ class IsolationResult:
     failed_edges: gpd.GeoDataFrame
     repairs: list[Repair]
     meta: dict
+    hospitals: gpd.GeoDataFrame = field(default_factory=lambda: gpd.GeoDataFrame())
 
 
 def analyse(
@@ -266,18 +268,38 @@ def analyse(
 
     ht = health.copy()
     kinds = []
+    names = []
+    amenities = []
     for t in ht["tags"]:
         tg = _tags(t)
         a, h = tg.get("amenity"), tg.get("healthcare")
         kinds.append("hospital" if "hospital" in (a, h) else "health")
+        amenities.append(a or h or "medical")
+        names.append(
+            tg.get("name")
+            or tg.get("name:en")
+            or tg.get("name:ne")
+            or ("Hospital" if "hospital" in (a, h) else "Health Facility")
+        )
     ht["kind"] = kinds
+    ht["name"] = names
+    ht["amenity"] = amenities
+    h_points = _points(ht, crs)
+    h_all_nodes = _snap(net, h_points, snap_m)
     hosp_nodes = _snap(net, _points(ht[ht["kind"] == "hospital"], crs), snap_m)
-    health_nodes = _snap(net, _points(ht, crs), snap_m)
+    health_nodes = h_all_nodes
     town_nodes = s_node[(pl["place"].isin(TOWNS)).to_numpy() & (s_node >= 0)]
     exits = exit_nodes(net, network_bounds, 300.0)
     hosp_nodes = np.unique(hosp_nodes[hosp_nodes >= 0])
     health_nodes = np.unique(health_nodes[health_nodes >= 0])
     any_targets = np.unique(np.r_[hosp_nodes, health_nodes, town_nodes, exits]).astype(int)
+
+    hosp_names: dict[int, str] = {}
+    hosp_amenities: dict[int, str] = {}
+    for idx, nd in enumerate(h_all_nodes):
+        if nd >= 0 and nd not in hosp_names:
+            hosp_names[nd] = names[idx]
+            hosp_amenities[nd] = amenities[idx]
 
     # --- exposure: buildings near each settlement ----------------------------------------
     bp = _points(buildings, crs) if len(buildings) else np.zeros((0, 2))
@@ -286,23 +308,93 @@ def analyse(
     else:
         counts = np.zeros(len(sp), int)
 
-    # --- shortest paths -----------------------------------------------------------------
+    # --- shortest paths & travel durations -----------------------------------------------
+    # Empirical traversal speeds by OSM highway tag for mountain road networks
+    hw_speeds: dict[str, float] = {
+        "motorway": 65.0,
+        "trunk": 50.0,
+        "primary": 40.0,
+        "secondary": 30.0,
+        "tertiary": 25.0,
+        "unclassified": 20.0,
+        "residential": 20.0,
+        "service": 15.0,
+        "track": 10.0,
+        "path": 4.0,
+        "footway": 4.0,
+        "steps": 2.0,
+        "pedestrian": 4.0,
+    }
+    speeds_mps = (
+        np.array([hw_speeds.get(str(h), 15.0) / 3.6 for h in net.highway], dtype=float)
+        if len(net.highway)
+        else np.zeros(0, float)
+    )
+    edge_durations_hr = (
+        (net.length / np.maximum(speeds_mps, 0.5)) / 3600.0
+        if len(net.length)
+        else np.zeros(0, float)
+    )
+
     def dist(keep, targets):
         if len(targets) == 0 or net.n == 0:
-            return np.full(net.n, np.inf), np.full(net.n, -9999)
-        d, pred, _src = dijkstra(
+            return np.full(net.n, np.inf), np.full(net.n, -9999), np.full(net.n, -9999)
+        d, pred, src = dijkstra(
             _matrix(net, keep),
             directed=False,
             indices=targets,
             min_only=True,
             return_predecessors=True,
         )
-        return d, pred
+        return d, pred, src
 
-    d_pre_h, pred_pre_h = dist(pre_keep, hosp_nodes)
-    d_post_h, _ = dist(post_keep, hosp_nodes)
-    d_pre_a, pred_pre_a = dist(pre_keep, any_targets)
-    d_post_a, _ = dist(post_keep, any_targets)
+    def duration(keep, targets):
+        if len(targets) == 0 or net.n == 0:
+            return np.full(net.n, np.inf)
+        d = dijkstra(
+            _matrix(net, keep, weight=edge_durations_hr),
+            directed=False,
+            indices=targets,
+            min_only=True,
+        )
+        return d
+
+    d_pre_h, pred_pre_h, src_pre_h = dist(pre_keep, hosp_nodes)
+    d_post_h, pred_post_h, src_post_h = dist(post_keep, hosp_nodes)
+    d_pre_a, pred_pre_a, _ = dist(pre_keep, any_targets)
+    d_post_a, _, _ = dist(post_keep, any_targets)
+
+    t_pre_h = duration(pre_keep, hosp_nodes)
+    t_post_h = duration(post_keep, hosp_nodes)
+    t_pre_a = duration(pre_keep, any_targets)
+    t_post_a = duration(post_keep, any_targets)
+
+    transformer = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
+
+    def trace_coords(start_node: int, pred: np.ndarray, target_node: int) -> list[list[float]]:
+        if start_node < 0 or target_node < 0 or net.n == 0:
+            return []
+        path = [start_node]
+        cur = start_node
+        guard = 0
+        while cur != target_node and cur >= 0 and pred[cur] >= 0 and guard < 50000:
+            cur = int(pred[cur])
+            path.append(cur)
+            guard += 1
+        if cur != target_node or len(path) < 2:
+            return []
+        xy = net.nodes[path]
+        lons, lats = transformer.transform(xy[:, 0], xy[:, 1])
+        return [[round(float(x), 6), round(float(y), 6)] for x, y in zip(lons, lats, strict=False)]
+
+    def break_coords(failed_edge_indices: list[int]) -> list[list[float]]:
+        pts = []
+        for e in failed_edge_indices:
+            mx = float((net.nodes[net.u[e], 0] + net.nodes[net.v[e], 0]) / 2)
+            my = float((net.nodes[net.u[e], 1] + net.nodes[net.v[e], 1]) / 2)
+            lon, lat = transformer.transform(mx, my)
+            pts.append([round(float(lon), 6), round(float(lat), 6)])
+        return pts
 
     edge_of: dict[tuple[int, int], int] = {}  # only failed edges are ever reported
     for e in np.flatnonzero(failed):
@@ -339,8 +431,24 @@ def analyse(
         n = s_node[i]
         st = status(i)
         crit = path_failed_edges(n, pred_pre_a) if n >= 0 and st in ("cut_off", "detour") else []
-        crit_h = path_failed_edges(n, pred_pre_h) if n >= 0 and st == "hospital_cut_off" else []
+        crit_h = (
+            path_failed_edges(n, pred_pre_h)
+            if n >= 0 and st in ("cut_off", "hospital_cut_off", "detour")
+            else []
+        )
         ok = n >= 0
+
+        has_hosp = ok and np.isfinite(d_pre_h[n]) and len(hosp_nodes) > 0
+        h_target = int(src_pre_h[n]) if has_hosp else -1
+        h_post_target = (
+            int(src_post_h[n]) if ok and np.isfinite(d_post_h[n]) and len(hosp_nodes) > 0 else -1
+        )
+        h_name = hosp_names.get(h_target) if has_hosp else None
+        h_amenity = hosp_amenities.get(h_target) if has_hosp else None
+        path_pre = trace_coords(n, pred_pre_h, h_target) if has_hosp else []
+        path_post = trace_coords(n, pred_post_h, h_post_target) if h_post_target >= 0 else []
+        breaks = break_coords(crit_h) if crit_h else []
+
         rows.append(
             {
                 "name": pl["name"].iat[i],
@@ -348,17 +456,34 @@ def analyse(
                 "osm_id": pl["osm_id"].iat[i],
                 "status": st,
                 "buildings_500m": int(counts[i]),
+                "hospital_name": h_name,
+                "hospital_amenity": h_amenity,
+                "hospital_path_pre": json.dumps(path_pre) if path_pre else None,
+                "hospital_path_post": json.dumps(path_post) if path_post else None,
+                "hospital_breaks": json.dumps(breaks) if breaks else None,
                 "km_to_hospital_pre": round(d_pre_h[n] / 1000, 2)
                 if ok and np.isfinite(d_pre_h[n])
                 else None,
                 "km_to_hospital_post": round(d_post_h[n] / 1000, 2)
                 if ok and np.isfinite(d_post_h[n])
                 else None,
+                "hours_to_hospital_pre": round(float(t_pre_h[n]), 2)
+                if ok and np.isfinite(t_pre_h[n])
+                else None,
+                "hours_to_hospital_post": round(float(t_post_h[n]), 2)
+                if ok and np.isfinite(t_post_h[n])
+                else None,
                 "km_to_target_pre": round(d_pre_a[n] / 1000, 2)
                 if ok and np.isfinite(d_pre_a[n])
                 else None,
                 "km_to_target_post": round(d_post_a[n] / 1000, 2)
                 if ok and np.isfinite(d_post_a[n])
+                else None,
+                "hours_to_target_pre": round(float(t_pre_a[n]), 2)
+                if ok and np.isfinite(t_pre_a[n])
+                else None,
+                "hours_to_target_post": round(float(t_post_a[n]), 2)
+                if ok and np.isfinite(t_post_a[n])
                 else None,
                 "critical_ways": sorted(
                     {str(net.ways["osm_id"].iat[net.way[e]]) for e in crit + crit_h}
@@ -369,6 +494,10 @@ def analyse(
     sdf["extra_km_target"] = [
         round(b - a, 2) if a is not None and b is not None else None
         for a, b in zip(sdf["km_to_target_pre"], sdf["km_to_target_post"], strict=True)
+    ]
+    sdf["delay_hours_target"] = [
+        round(b - a, 2) if a is not None and b is not None else None
+        for a, b in zip(sdf["hours_to_target_pre"], sdf["hours_to_target_post"], strict=True)
     ]
 
     # --- reachability on a contracted graph ---------------------------------------------
@@ -481,4 +610,27 @@ def analyse(
         "snap_m": snap_m,
         "exposure_radius_m": exposure_radius_m,
     }
-    return IsolationResult(sdf, fdf, repairs, meta)
+    ht_points = [Point(xy) for xy in h_points] if len(ht) else []
+    h_status = []
+    for hs in h_all_nodes:
+        if hs < 0:
+            h_status.append("not_on_network")
+        elif not np.isfinite(d_post_a[hs]):
+            h_status.append("isolated")
+        else:
+            h_status.append("accessible")
+    hdf = gpd.GeoDataFrame(
+        {
+            "name": names,
+            "kind": kinds,
+            "amenity": amenities,
+            "osm_id": ht["osm_id"].to_list()
+            if "osm_id" in ht.columns
+            else [f"health/{k}" for k in range(len(ht))],
+            "status": h_status,
+        },
+        geometry=ht_points,
+        crs=crs,
+    )
+
+    return IsolationResult(sdf, fdf, repairs, meta, hdf)

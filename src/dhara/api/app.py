@@ -16,7 +16,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from dhara.api.store import Store
@@ -44,6 +46,7 @@ ALLOWED_FILES = {
     "sitrep_ne.html",
     "sitrep_en.pdf",
     "sitrep_ne.pdf",
+    "assistant_log.jsonl",
     "classes.tif",
     "p_flood.tif",
     "p_debris.tif",
@@ -54,16 +57,35 @@ WEB_EXT = {".png", ".geojson"}
 state: dict[str, Any] = {}
 
 
+def _resync_facts(store: Store, jobs_dir: Path) -> None:
+    """Load each job's facts.json into the store, so a re-rendered sitrep and the API agree."""
+    if not jobs_dir.exists():
+        return
+    for d in jobs_dir.iterdir():
+        f = d / "facts.json"
+        if f.exists() and store.get(d.name) is not None:
+            store.put_facts(d.name, json.loads(f.read_text())["facts"])
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     s = get_settings()
     state["store"] = Store(s.dhara_data_dir / "dhara.duckdb")
+    _resync_facts(state["store"], s.jobs_dir)
     state["pool"] = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dhara-job")
     yield
     state["pool"].shutdown(wait=False, cancel_futures=True)
 
 
 app = FastAPI(title="Dhara API", version="0.1.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    # The API holds no cookies or sessions, so any origin may read it without credentials.
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+)
 
 
 def store() -> Store:
@@ -164,10 +186,58 @@ def config() -> dict:
     }
 
 
+_REPO = Path(__file__).resolve().parents[3]
+_METRIC_KEYS = ("f1_flood", "iou_flood", "precision_flood", "recall_flood", "event_f1_flood_ci95")
+
+
+def _split_metrics(m: dict, split: str) -> dict:
+    return {k: m.get(split, {}).get(k) for k in _METRIC_KEYS}
+
+
+@app.get("/api/model")
+def model() -> dict:
+    """The deployed segmentation model and every trained variant, as written by `training/train.py`.
+
+    `test` is the held-out Kuro Siwo test split; `mountain` is the held-out high-relief events.
+    """
+    from dhara.members.ml_seg import MODEL_DIR
+
+    def read(d: Path) -> dict | None:
+        if not (d / "metrics.json").exists() or not (d / "model_card.json").exists():
+            return None
+        m = json.loads((d / "metrics.json").read_text())
+        card = json.loads((d / "model_card.json").read_text())
+        # Runs trained before the split fix used a tile-level fallback that also put mountain
+        # hold-out tiles into training. Their val and test sets are then the same object, so
+        # identical val/test metrics identify them; their mountain score is not held out.
+        held_out = m.get("val") != m.get("test")
+        return {
+            "run_name": card.get("run_name", d.name),
+            "mountain_held_out": held_out,
+            "architecture": card.get("model"),
+            "training_data": card.get("training_data"),
+            "encoder_weights": card.get("encoder_weights"),
+            "splits": card.get("splits", {}),
+            "test": _split_metrics(m, "test"),
+            "mountain": _split_metrics(m, "mountain"),
+        }
+
+    runs = [r for d in sorted((_REPO / "experiments").glob("*/")) if (r := read(d))]
+    return {"deployed": read(MODEL_DIR), "runs": runs}
+
+
 def _ml_available() -> bool:
     from dhara.members.ml_seg import model_available
 
     return model_available()
+
+
+@app.get("/api/places")
+def places(q: str = "", limit: int = 8) -> list[dict]:
+    """Search pre-event gazetteer for places, towns, valleys and corridors."""
+    from dhara.places import search_places
+
+    return search_places(q, limit=limit)
 
 
 @app.post("/api/scenes")
@@ -272,6 +342,7 @@ def download(job_id: str) -> Response:
             "provenance.json",
             "facts.json",
             "summary.json",
+            "assistant_log.jsonl",
         ):
             if (d / name).exists():
                 z.write(d / name, name)
@@ -284,3 +355,40 @@ def download(job_id: str) -> Response:
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="dhara_{job_id}.zip"'},
     )
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(description="Question about the disaster situation in any language")
+    lang: str = Field(
+        default="en", description="Target response language (e.g., 'en', 'ne', 'hi', 'es', 'fr')"
+    )
+
+
+class ExplainAssetRequest(BaseModel):
+    asset_type: Literal["bridge", "settlement", "road"] = Field(description="Type of OSM asset")
+    asset_name: str = Field(description="Name or ID of the asset")
+    lang: str = Field(default="en", description="Target explanation language")
+
+
+@app.post("/api/jobs/{job_id}/chat")
+def chat_with_assistant(job_id: str, req: ChatRequest) -> dict:
+    """Ask analytical questions about the disaster in any language, grounded in verified facts."""
+    from dhara.assistant.service import ask_assistant
+
+    d = _job_dir(job_id)
+    return ask_assistant(d, req.message, lang=req.lang)
+
+
+@app.post("/api/jobs/{job_id}/explain-asset")
+def explain_asset(job_id: str, req: ExplainAssetRequest) -> dict:
+    """Explain why a specific bridge or settlement is cut off or damaged using radar/terrain physics."""
+    from dhara.assistant.service import explain_asset_impact
+
+    d = _job_dir(job_id)
+    return explain_asset_impact(d, req.asset_type, req.asset_name, lang=req.lang)
+
+
+# Mount compiled frontend if available (educational prototype UI)
+_web_dist = Path(__file__).resolve().parents[3] / "web" / "dist"
+if _web_dist.exists() and (_web_dist / "index.html").exists():
+    app.mount("/", StaticFiles(directory=_web_dist, html=True), name="static")

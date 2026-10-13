@@ -37,6 +37,18 @@ def test_health_and_config(client):
     assert any("Copernicus Sentinel" in a for a in cfg["attributions"])
 
 
+def test_places_search(client):
+    res = client.get("/api/places").json()
+    assert len(res) > 0
+    assert any("Rasuwa" in p["name"] for p in res)
+
+    # Search by prefix
+    syab = client.get("/api/places?q=syab").json()
+    assert len(syab) > 0
+    assert "Syabrubesi" in syab[0]["name"]
+    assert "polygon" in syab[0]
+
+
 def test_rejects_large_aoi_and_naive_time(client):
     r = client.post("/api/jobs", json={"aoi": HUGE, "event": "2026-08-26"})
     assert r.status_code == 422 and "cap" in r.text
@@ -75,3 +87,26 @@ def test_job_lifecycle_with_stub_pipeline(client, monkeypatch, tmp_path):
     assert client.get(f"/api/jobs/{jid}/files/error.txt").status_code == 404
     z = client.get(f"/api/jobs/{jid}/download.zip")
     assert z.status_code == 200 and z.headers["content-type"] == "application/zip"
+
+    # Test AI Multilingual Assistant
+    chat_resp = client.post(
+        f"/api/jobs/{jid}/chat",
+        json={"message": "What is the damage status?", "lang": "ne"},
+    )
+    assert chat_resp.status_code == 200
+    assert len(chat_resp.json()["answer"]) > 0
+    assert chat_resp.json()["lang"] == "ne"
+
+    explain_resp = client.post(
+        f"/api/jobs/{jid}/explain-asset",
+        json={"asset_type": "bridge", "asset_name": "Main Bridge", "lang": "en"},
+    )
+    assert explain_resp.status_code == 200
+    assert explain_resp.json()["asset_type"] == "bridge"
+
+
+def test_model_metrics_come_from_training_outputs(client):
+    res = client.get("/api/model").json()
+    assert set(res) == {"deployed", "runs"}
+    for run in res["runs"]:
+        assert set(run["test"]) >= {"f1_flood", "iou_flood"}

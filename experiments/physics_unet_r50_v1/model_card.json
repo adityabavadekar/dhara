@@ -1,0 +1,57 @@
+{
+ "model": "Unet-resnet50",
+ "run_name": "physics_unet_r50_v1",
+ "training_data": "Kuro Siwo labelled GRD (Bountos et al., NeurIPS 2024), CC BY",
+ "encoder_weights": "random init",
+ "inputs": "6 x 224 x 224: dB sigma0 [post VV, post VH, pre1 VV, pre1 VH, pre2 VV, pre2 VH], standardised with norm.json",
+ "classes": [
+  "no_water",
+  "permanent_water",
+  "flood"
+ ],
+ "temperature": 1.0332,
+ "norm": {
+  "mean": [
+   -10.103400230407715,
+   -16.662399291992188,
+   -10.328200340270996,
+   -17.37019920349121,
+   -10.831299781799316,
+   -17.957300186157227
+  ],
+  "std": [
+   4.494800090789795,
+   4.297299861907959,
+   3.9001998901367188,
+   3.914400100708008,
+   4.116700172424316,
+   4.159599781036377
+  ],
+  "units": "dB"
+ },
+ "splits": {
+  "event_relief_m": {
+   "470": 14.5,
+   "492": 29.8,
+   "496": 49.3,
+   "497": 11.0,
+   "498": 161.2,
+   "502": 59.4,
+   "518": 26.1
+  },
+  "mountain_events": [
+   498,
+   502,
+   496,
+   492
+  ],
+  "counts": {
+   "train": 1165,
+   "val": 292,
+   "test": 292,
+   "mountain": 755
+  }
+ },
+ "seed": 1337,
+ "created_utc": "2026-10-10T19:07:30Z"
+}

@@ -1,0 +1,40 @@
+# SegFormer (Mix-Transformer mit_b0) SOTA Vision Transformer for SAR Flood Segmentation.
+# Hierarchical self-attention with multi-scale feature maps without positional encodings.
+dataset: kurosiwo
+data_dir: /tmp/ks_arr
+out_dir: /kaggle/working/dhara/runs
+run_name: segformer_mitb0_v1
+seed: 1337
+
+model:
+  arch: Segformer
+  encoder: mit_b0
+  encoder_weights: null
+  allow_pretrained_weights: false
+  in_channels: 6
+  classes: 3                 # 0 no water, 1 permanent water, 2 flood
+
+splits:
+  train_acts: [130, 470, 555, 118, 174, 324, 421, 554, 427, 518, 502, 498, 497, 496, 492, 147, 267,
+               273, 275, 417, 567, 1111011, 1111004, 1111009, 1111010, 1111006, 1111005]
+  val_acts: [514, 559, 279, 520, 437, 1111003, 1111008]
+  test_acts: [321, 561, 445, 562, 411, 1111002, 277, 1111007, 205, 1111013]
+  mountain_holdout_events: 4
+
+train:
+  epochs: 20
+  batch_size: 16             # per GPU (2x T4 = 32 effective batch size)
+  lr: 0.0003
+  weight_decay: 0.0001
+  num_workers: 4
+  ce_weights: [1.0, 1.0, 2.5]
+  dice_weight: 1.0
+  focal_weight: 0.5
+  amp: true
+
+augment:
+  flips: true
+  gain_jitter_db: 1.0
+  speckle_db: 0.5
+  pre2_dropout: 0.3
+  swap_pre: 0.5

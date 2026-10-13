@@ -19,6 +19,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.distributed as dist
+import torch.nn as nn
 import torch.nn.functional as F
 import yaml
 from torch.utils.data import DataLoader, Dataset
@@ -67,10 +68,23 @@ def make_splits(rows: list[dict], cfg: dict) -> dict[str, list[int]]:
             out["val"].append(idx)
         elif a in sp["test_acts"]:
             out["test"].append(idx)
+    if not out["train"] or not out["val"]:
+        # Too few events for the event-level split. Fall back to a tile split, but never let a
+        # mountain hold-out tile into train/val: that would make the "unseen" score meaningless.
+        valid_indices = [
+            i for i, r in enumerate(rows) if r["valid_frac"] >= 0.5 and r["actid"] not in mountain
+        ]
+        n = len(valid_indices)
+        n_train = max(1, int(n * 0.8))
+        out["train"] = valid_indices[:n_train]
+        out["val"] = valid_indices[n_train:] if n > n_train else valid_indices[:n_train]
+        out["test"] = out["val"]
+
     out_meta = {
         "event_relief_m": {str(a): round(v, 1) for a, v in sorted(relief.items())},
         "mountain_events": mountain,
         "counts": {s: len(v) for s, v in out.items()},
+        "tile_split_fallback": out["test"] is out["val"],
     }
     return out | {"_meta": out_meta}  # type: ignore[return-value]
 
@@ -135,7 +149,42 @@ def compute_norm(data_dir: Path, rows, idx, n: int = 2000, seed: int = 0) -> dic
 # ----------------------------------------------------------------------------- model / loss
 
 
-def build_model(cfg: dict):
+class PhysicsGuidedSARModel(nn.Module):
+    """Deep Neural Segmentation Network augmented with a Physics-Informed SAR Residual Head.
+
+    Extracts explicit physical differential radar features:
+      1. Specular backscatter drop Δσ0_VV = Post VV - Pre1 VV
+      2. Cross-pol volume scattering ratio Δσ0_VH = Post VH - Pre1 VH
+      3. Co/Cross polarization ratio = Post VV - Post VH (dB)
+    and passes them through a physics gating residual unit to refine the deep feature logits.
+    """
+
+    def __init__(self, base_model: nn.Module):
+        super().__init__()
+        self.base = base_model
+        # Physics feature extractor: 3 physical radar channels
+        self.physics_head = nn.Sequential(
+            nn.Conv2d(3, 16, kernel_size=3, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(16, 3, kernel_size=1),
+        )
+        self.gate = nn.Parameter(torch.tensor([0.2]))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x is (B, 6, H, W): [post_vv, post_vh, pre1_vv, pre1_vh, pre2_vv, pre2_vh]
+        delta_vv = x[:, 0:1] - x[:, 2:3]
+        delta_vh = x[:, 1:2] - x[:, 3:4]
+        pol_ratio = x[:, 0:1] - x[:, 1:2]
+        physics_feat = torch.cat([delta_vv, delta_vh, pol_ratio], dim=1)
+
+        base_logits = self.base(x)
+        physics_residual = self.physics_head(physics_feat)
+
+        return base_logits + self.gate * physics_residual
+
+
+def build_model(cfg: dict) -> nn.Module:
     import segmentation_models_pytorch as smp
 
     m = cfg["model"]
@@ -143,12 +192,24 @@ def build_model(cfg: dict):
         raise RuntimeError(
             "Pretrained encoder weights are a gray area; set allow_pretrained_weights"
         )
-    return smp.Unet(
+    arch_name = m.get("arch", "Unet")
+    model_cls = getattr(smp, arch_name, None)
+    if model_cls is None:
+        for name in dir(smp):
+            if name.lower() == arch_name.lower():
+                model_cls = getattr(smp, name)
+                break
+    if model_cls is None:
+        model_cls = smp.Unet
+    base_model = model_cls(
         encoder_name=m["encoder"],
         encoder_weights=m["encoder_weights"],
         in_channels=m["in_channels"],
         classes=m["classes"],
     )
+    if m.get("physics_head", False):
+        return PhysicsGuidedSARModel(base_model)
+    return base_model
 
 
 def dice_loss(logits, y, n_cls: int):
@@ -158,6 +219,17 @@ def dice_loss(logits, y, n_cls: int):
     inter = (p * oh).sum((0, 2, 3))
     den = p.sum((0, 2, 3)) + oh.sum((0, 2, 3))
     return 1 - ((2 * inter + 1) / (den + 1)).mean()
+
+
+def focal_loss(logits, y, n_cls: int, gamma: float = 2.0, alpha=None):
+    valid = y != 255
+    log_p = F.log_softmax(logits.float(), dim=1)
+    p = torch.exp(log_p)
+    target = y.clamp(max=n_cls - 1)
+    ce = F.nll_loss(log_p, target, weight=alpha, ignore_index=255, reduction="none")
+    p_t = p.gather(1, target.unsqueeze(1)).squeeze(1)
+    focal_weight = (1.0 - p_t) ** gamma
+    return (focal_weight * ce)[valid].mean()
 
 
 # ----------------------------------------------------------------------------- metrics
@@ -360,12 +432,17 @@ def main() -> None:
                 lg = model(x)
                 loss = F.cross_entropy(lg.float(), y, weight=ce_w, ignore_index=255)
                 loss = loss + tcfg["dice_weight"] * dice_loss(lg, y, 3)
+                if tcfg.get("focal_weight", 0.0) > 0:
+                    loss = loss + tcfg["focal_weight"] * focal_loss(lg, y, 3, alpha=ce_w)
             opt.zero_grad(set_to_none=True)
             scaler.scale(loss).backward()
+            scale_before = scaler.get_scale()
             scaler.step(opt)
             scaler.update()
-            sched.step()
-            tot, n = tot + float(loss), n + 1
+            scale_after = scaler.get_scale()
+            if scale_before <= scale_after:
+                sched.step()
+            tot, n = tot + float(loss.detach().item()), n + 1
         if rank == 0:
             val = evaluate(core, eval_loader("val"), device, tcfg["amp"])
             rec = {"epoch": epoch, "loss": round(tot / n, 4), "sec": round(time.time() - t0)} | {
@@ -379,6 +456,19 @@ def main() -> None:
                 torch.save(
                     {"state_dict": core.state_dict(), "epoch": epoch, "cfg": cfg}, run / "best.pt"
                 )
+            torch.save(
+                {
+                    "state_dict": core.state_dict(),
+                    "epoch": epoch,
+                    "cfg": cfg,
+                    "opt": opt.state_dict(),
+                    "sched": sched.state_dict(),
+                    "scaler": scaler.state_dict(),
+                    "history": history,
+                    "best": best,
+                },
+                run / "last.pt",
+            )
         if ddp:
             dist.barrier()
 

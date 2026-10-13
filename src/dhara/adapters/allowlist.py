@@ -29,6 +29,14 @@ ALLOWED_HOSTS: frozenset[str] = frozenset(
     }
 )
 
+# Assistant language-model hosts. Not data inputs: they only phrase answers from a finished job's
+# facts. Each is accepted only when `assistant_llm` selects that provider (default "off").
+LLM_HOSTS: dict[str, str] = {
+    "api.groq.com": "groq",
+    "generativelanguage.googleapis.com": "gemini",
+    "api.openai.com": "openai",
+}
+
 # Raster (GDAL) sources, opened only through `guarded_raster_open()`. Copernicus DEM GLO-30 COG
 # tiles only: CDSE S3 (eodata) and the official open GLO-30 COG distribution on AWS Open Data.
 ALLOWED_RASTER_PREFIXES: tuple[str, ...] = (
@@ -135,6 +143,14 @@ def check_request(
     if parsed.scheme != "https":
         raise ComplianceError(f"Only https is allowed: {url}")
     host = parsed.hostname or ""
+    if host in LLM_HOSTS:
+        selected = get_settings().llm_provider
+        if LLM_HOSTS[host] != selected:
+            raise ComplianceError(
+                f"Assistant LLM host {host!r} is blocked: the active provider is {selected!r}. "
+                f"Set ASSISTANT_LLM={LLM_HOSTS[host]} and its API key to enable it."
+            )
+        return
     if host not in ALLOWED_HOSTS:
         raise ComplianceError(f"Host not in allowlist: {host!r}")
     if host == "stac.dataspace.copernicus.eu":
