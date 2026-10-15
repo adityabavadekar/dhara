@@ -3,12 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as maplibregl from 'maplibre-gl'
 import type { GeoJSONSource, Map as MLMap } from 'maplibre-gl'
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronsLeftRight } from 'lucide-react'
 import { LAYERS, useApp, type LayerId, type Selection } from '@/context/app-state'
 import { useTheme } from '@/context/theme-provider'
 import { api, fileUrl, layerUrl, type Polygon } from '@/lib/api'
-import { bounds, parseSettlement, STATUS_COLOR, str, useJob, useSettlementRoute } from '@/lib/job'
+import { bounds, parseSettlement, STATUS_COLOR, str, useGeo, useJob, useSettlementRoute } from '@/lib/job'
 import { formatArea, formatDistance, measurePathDistanceKm, measurePolygonAreaKm2 } from '@/lib/measure'
 import { Legend } from './legend'
 import { MapSearch } from './map-search'
@@ -17,23 +18,33 @@ import { SelectionCard } from './selection-card'
 import { StatusBar } from './status-bar'
 import { SWEEP_DEFAULT, SweepPanel, sweepLayers } from './sweep-panel'
 
-const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services'
+// MapLibre loads its worker from a separate file; import its URL so the build ships it.
+maplibregl.setWorkerUrl(workerUrl)
+
+// Esri serves tiles over HTTP/1.1, where a browser opens only 6 connections per host; spreading
+// tiles over its two equivalent hosts doubles the parallel downloads when zooming out.
+const ESRI_HOSTS = ['server', 'services'].map((h) => `https://${h}.arcgisonline.com/ArcGIS/rest/services`)
+const esri = (path: string) => ESRI_HOSTS.map((base) => `${base}/${path}`)
+// Label fonts are served with the app (web/public/assets/glyphs), not from a third-party font server.
+const GLYPHS = `${window.location.origin}/assets/glyphs/{fontstack}/{range}.pbf`
 export const BASEMAPS: Record<Basemap, { tiles: string[]; attribution: string; label: string; maxzoom: number }> = {
+  // Esri has no gray-base tiles past z16 in rural Nepal and no imagery past z18 (it returns "Map data
+  // not yet available" images), so those stop there and the map enlarges the last real level.
   light: {
     label: 'Light',
-    tiles: [`${ESRI}/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}`],
+    tiles: esri('Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}'),
     attribution: 'Basemap © Esri, HERE, Garmin, © OpenStreetMap contributors (display only)',
     maxzoom: 16,
   },
   dark: {
     label: 'Dark',
-    tiles: [`${ESRI}/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`],
+    tiles: esri('Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}'),
     attribution: 'Basemap © Esri, HERE, Garmin, © OpenStreetMap contributors (display only)',
     maxzoom: 16,
   },
   imagery: {
     label: 'Imagery',
-    tiles: [`${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`],
+    tiles: esri('World_Imagery/MapServer/tile/{z}/{y}/{x}'),
     attribution: 'Imagery © Esri, Maxar, Earthstar Geographics (display only, not an analysis input)',
     maxzoom: 18,
   },
@@ -100,7 +111,7 @@ function setData(map: MLMap, id: string, data: GeoJSON.GeoJSON | string) {
 function addLayers(map: MLMap) {
   const w = (a: number, b: number) => ['interpolate', ['linear'], ['zoom'], 9, a, 15, b] as unknown as maplibregl.ExpressionSpecification
   const halo = { 'text-halo-color': '#ffffff', 'text-halo-width': 1.4 }
-  const placeLabelFont = ['Noto Sans CJK SC Regular', 'Open Sans Semibold']
+  const placeLabelFont = ['Open Sans Semibold']
   map.addLayer({ id: 'aoi-fill', type: 'fill', source: 'aoi', paint: { 'fill-color': '#0284c7', 'fill-opacity': 0.03 } })
   map.addLayer({ id: 'v-roads', type: 'line', source: 'roads', filter: ['==', ['get', 'status'], 'hit'], paint: { 'line-color': '#7c2d12', 'line-width': w(1, 3) } })
   map.addLayer({ id: 'v-failed', type: 'line', source: 'failed', paint: { 'line-color': '#dc2626', 'line-width': w(1.5, 4) } })
@@ -355,6 +366,8 @@ export function MapView() {
   const secondaryMapRef = useRef<MLMap | null>(null)
   const isSyncingRef = useRef(false)
   const [ready, setReady] = useState(false)
+  // Set when the browser cannot draw the map (no WebGL2); the panels keep working without it.
+  const [mapError, setMapError] = useState<string | null>(null)
   const { resolvedTheme } = useTheme()
   const [basemap, setBasemap] = useState<Basemap>('imagery')
   const [measure, setMeasure] = useState<MeasureMode>('none')
@@ -384,11 +397,13 @@ export function MapView() {
   // ---------------------------------------------------------------- init
   useEffect(() => {
     if (!ref.current || mapRef.current) return
-    const map = new maplibregl.Map({
+    let map: maplibregl.Map
+    try {
+      map = new maplibregl.Map({
       container: ref.current,
       style: {
         version: 8,
-        glyphs: 'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf',
+        glyphs: GLYPHS,
         sources: {},
         layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#e2e8f0' } }],
       },
@@ -396,6 +411,10 @@ export function MapView() {
       zoom: 8,
       attributionControl: false,
     })
+    } catch (e) {
+      setMapError(e instanceof Error && /webgl/i.test(e.message) ? 'webgl' : 'other')
+      return
+    }
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'bottom-right')
     map.addControl(new RecenterControl(() => recenterRef.current()), 'bottom-right')
     map.on('load', () => {
@@ -548,7 +567,33 @@ export function MapView() {
   // ---------------------------------------------------------------- analysis layers
   const job = useJob(app.jobId)
   const done = job.data?.status === 'done'
-  const manifest = useQuery({ queryKey: ['manifest', app.jobId], queryFn: () => api.manifest(app.jobId!), enabled: !!app.jobId && done })
+  const manifest = useQuery({
+    queryKey: ['manifest', app.jobId],
+    queryFn: () => api.manifest(app.jobId!),
+    enabled: !!app.jobId && done,
+    staleTime: Infinity,
+  })
+  // Layers the side panel also lists are downloaded once and shared (same query keys as useJobData).
+  const vectors = manifest.data?.vectors ?? {}
+  const gBuildings = useGeo(app.jobId, done, 'buildings', vectors.buildings?.url)
+  const gRoads = useGeo(app.jobId, done, 'roads', vectors.roads?.url)
+  const gBridges = useGeo(app.jobId, done, 'bridges', vectors.bridges?.url)
+  const gSettlements = useGeo(app.jobId, done, 'settlements', vectors.settlements?.url ? `${vectors.settlements.url}?slim=1` : undefined)
+  const gHospitals = useGeo(app.jobId, done, 'hospitals', vectors.hospitals?.url)
+  const gHlz = useGeo(app.jobId, done, 'hlz', vectors.hlz?.url)
+  const shared = useMemo<Record<string, GeoJSON.FeatureCollection | undefined>>(
+    () => ({
+      buildings: gBuildings.data,
+      roads: gRoads.data,
+      bridges: gBridges.data,
+      settlements: gSettlements.data,
+      hospitals: gHospitals.data,
+      hlz: gHlz.data,
+    }),
+    [gBuildings.data, gRoads.data, gBridges.data, gSettlements.data, gHospitals.data, gHlz.data],
+  )
+  const sharedRef = useRef(shared)
+  sharedRef.current = shared
   const imgSet =
     sweepKind === 'radar' && manifest.data?.imagery_radar ? manifest.data.imagery_radar : manifest.data?.imagery
 
@@ -581,6 +626,7 @@ export function MapView() {
       map.addLayer({ id: `r-${r}`, type: 'raster', source: `r-${r}`, paint: { 'raster-resampling': 'nearest', 'raster-opacity': 0.85, 'raster-fade-duration': 0 } }, 'aoi-fill')
     }
     for (const [src, name] of vec) {
+      if (name in sharedRef.current) continue // drawn from the shared download, below
       const v = m.vectors[name]
       const url = v ? layerUrl(id, name, v.url) : null
       setData(map, src, url ?? EMPTY)
@@ -589,6 +635,13 @@ export function MapView() {
     setData(map, 'hz-outline', hz ? fileUrl(id, hz.url) : EMPTY)
     setData(map, 'change', m.vectors.change ? fileUrl(id, m.vectors.change.url) : EMPTY)
   }, [manifest.data, app.jobId, done, ready])
+
+  // Shared layers, set as each download arrives.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    for (const [name, data] of Object.entries(shared)) setData(map, name, data ?? EMPTY)
+  }, [shared, ready])
 
   useEffect(() => {
     const map = mapRef.current
@@ -653,7 +706,7 @@ export function MapView() {
       container: secondaryRef.current,
       style: {
         version: 8,
-        glyphs: 'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf',
+        glyphs: GLYPHS,
         sources: {},
         layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#e2e8f0' } }],
       },
@@ -705,6 +758,11 @@ export function MapView() {
           ['hlz', 'hlz'],
         ]
         for (const [src, name] of vec) {
+          const own = sharedRef.current[name]
+          if (own) {
+            setData(map2, src, own)
+            continue
+          }
           const v = m.vectors[name]
           const url = v ? layerUrl(id, name, v.url) : null
           setData(map2, src, url ?? EMPTY)
@@ -920,6 +978,19 @@ export function MapView() {
     <div className='flex h-full w-full flex-col'>
     <div className='@container relative min-h-0 w-full flex-1'>
       <div ref={ref} className='h-full w-full' />
+      {mapError && (
+        <div className='absolute inset-0 z-30 flex items-center justify-center bg-muted p-6 text-center'>
+          <div className='max-w-xs space-y-1'>
+            <div className='text-sm font-semibold'>The map cannot be shown in this browser</div>
+            <p className='text-xs text-muted-foreground'>
+              {mapError === 'webgl'
+                ? 'It needs WebGL 2, which is turned off or unsupported here. Try another browser or turn on hardware acceleration.'
+                : 'The map failed to start. Reload the page or try another browser.'}{' '}
+              The results, report and assistant still work.
+            </p>
+          </div>
+        </div>
+      )}
 
       {sweep && (
         <div
@@ -937,17 +1008,21 @@ export function MapView() {
       {sweep && (
         <>
           <div
-            className='absolute inset-y-0 z-30 -ml-3 flex w-6 cursor-ew-resize justify-center'
+            // touch-none: a finger drag moves the divider instead of scrolling or panning the page.
+            className='absolute inset-y-0 z-30 -ml-5 flex w-10 cursor-ew-resize touch-none justify-center'
             style={{ left: `${sweepPos}%` }}
             onPointerDown={(e) => {
+              e.currentTarget.setPointerCapture(e.pointerId)
               const box = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect()
               const move = (ev: PointerEvent) => setSweepPos(Math.min(99, Math.max(1, ((ev.clientX - box.left) / box.width) * 100)))
               const up = () => {
                 window.removeEventListener('pointermove', move)
                 window.removeEventListener('pointerup', up)
+                window.removeEventListener('pointercancel', up)
               }
               window.addEventListener('pointermove', move)
               window.addEventListener('pointerup', up)
+              window.addEventListener('pointercancel', up)
               e.preventDefault()
             }}
             role='slider'
@@ -955,7 +1030,7 @@ export function MapView() {
             aria-valuenow={Math.round(sweepPos)}
           >
             <div className='h-full w-0.5 bg-white shadow-[0_0_8px_rgba(0,0,0,0.6)]' />
-            <div className='absolute top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-neutral-900 text-white shadow-lg'>
+            <div className='absolute top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-neutral-900 text-white shadow-lg'>
               <ChevronsLeftRight className='size-4' />
             </div>
           </div>
@@ -970,7 +1045,7 @@ export function MapView() {
             </span>
           </div>
           <SweepPanel jobId={app.jobId} change={manifest.data?.change} opts={sweepOpts} setOpts={setSweepOpts} hasFlow={!!flowRef.current} />
-          <div className='absolute right-3 bottom-3 z-30 flex max-w-[calc(100%-17rem)] items-center gap-2 rounded-md bg-neutral-900/85 px-2.5 py-1.5 text-[0.6875rem] text-white/85 shadow'>
+          <div className='absolute right-3 bottom-3 z-30 flex items-center gap-2 rounded-md bg-neutral-900/85 px-2.5 py-1.5 text-[0.6875rem] text-white/85 shadow @3xl:max-w-[calc(100%-17rem)]'>
             {manifest.data?.imagery?.kind === 'optical' && manifest.data?.imagery_radar && (
               <div className='flex shrink-0 rounded border border-white/20 p-0.5'>
                 {(['optical', 'radar'] as const).map((k) => (
@@ -985,7 +1060,8 @@ export function MapView() {
                 ))}
               </div>
             )}
-            <span>
+            {/* The explanation needs room; narrow maps show just the Optical/Radar switch. */}
+            <span className='hidden @3xl:inline'>
               {imgSet?.kind === 'optical'
                 ? 'Natural colour. White patches are cloud; switch to radar to see through them.'
                 : 'Radar: dark = calm water or smooth ground, bright = rough ground or slopes facing the satellite.'}{' '}
@@ -1042,7 +1118,8 @@ export function MapView() {
       )}
 
       {app.selection && (
-        <div className='absolute bottom-3 left-3 z-10 w-[20rem] max-w-[calc(100%-1.5rem)]'>
+        // On phones the card is a short sheet at the bottom (its body scrolls) so the map stays visible.
+        <div className='absolute bottom-3 left-3 z-10 flex max-h-[55%] w-[20rem] max-w-[calc(100%-1.5rem)] sm:max-h-[calc(100%-5rem)]'>
           <SelectionCard />
         </div>
       )}

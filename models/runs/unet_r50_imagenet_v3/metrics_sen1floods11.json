@@ -1,0 +1,58 @@
+{
+ "model": "unet_r50_imagenet_v3",
+ "mode": "post only",
+ "splits": {
+  "test": {
+   "model": {
+    "iou_water": 0.4759,
+    "f1_water": 0.6449,
+    "precision": 0.5376,
+    "recall": 0.8057,
+    "chip_mean_iou": 0.3067,
+    "chip_mean_iou_ci95": [
+     0.2453,
+     0.3686
+    ],
+    "chips": 88
+   },
+   "otsu_vv_baseline": {
+    "iou_water": 0.2101,
+    "f1_water": 0.3473,
+    "precision": 0.2296,
+    "recall": 0.7126,
+    "chip_mean_iou": 0.2107,
+    "chip_mean_iou_ci95": [
+     0.1511,
+     0.2738
+    ],
+    "chips": 89
+   }
+  },
+  "bolivia": {
+   "model": {
+    "iou_water": 0.7163,
+    "f1_water": 0.8347,
+    "precision": 0.7811,
+    "recall": 0.8963,
+    "chip_mean_iou": 0.4852,
+    "chip_mean_iou_ci95": [
+     0.3074,
+     0.6473
+    ],
+    "chips": 15
+   },
+   "otsu_vv_baseline": {
+    "iou_water": 0.3493,
+    "f1_water": 0.5177,
+    "precision": 0.3782,
+    "recall": 0.8201,
+    "chip_mean_iou": 0.3674,
+    "chip_mean_iou_ci95": [
+     0.2048,
+     0.5235
+    ],
+    "chips": 15
+   }
+  }
+ }
+}

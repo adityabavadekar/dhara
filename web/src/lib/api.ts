@@ -23,6 +23,13 @@ export type Job = {
   request: Record<string, unknown>
   summary: Record<string, unknown> | null
   error: string | null
+  location_name?: string | null
+  /** When the run left the queue (absent for runs made before queueing existed). */
+  started_utc?: string | null
+  /** Headline facts of a finished analysis, as display text (job list only). */
+  brief?: Record<string, string> | null
+  /** Runs ahead of this one in the queue (queued jobs only). */
+  queue_ahead?: number | null
 }
 
 export type RasterLayer = { url: string; coordinates: [number, number][] }
@@ -100,9 +107,9 @@ export const API_BASE = (() => {
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL
   if (typeof window !== 'undefined') {
     const { hostname, port, protocol } = window.location
-    // If served from a standalone static server (e.g. npx serve on port 3000, 5000, etc.)
-    // and not port 8000 (FastAPI directly) and not 5173 / 4173 (Vite dev/preview proxy)
-    if (port && port !== '8000' && port !== '5173' && port !== '4173') {
+    // Only in local development on non-API dev ports (e.g. port 3000, 5000) redirect to :8000.
+    // When served by FastAPI (port 8000, 8010, etc.) or behind a reverse proxy, use relative origin "".
+    if (import.meta.env.DEV && port && port !== '8000' && port !== '8010' && port !== '5173' && port !== '4173') {
       const apiHost = hostname === 'localhost' ? '127.0.0.1' : hostname
       return `${protocol}//${apiHost}:8000`
     }
@@ -189,9 +196,9 @@ export const api = {
   places: (q: string = '') => req<Place[]>(`/api/places?q=${encodeURIComponent(q)}`),
   scenes: (aoi: Polygon, event: string) =>
     req<ScenePreview>('/api/scenes', { method: 'POST', body: JSON.stringify({ aoi, event }) }),
-  createJob: (body: { aoi: Polygon; event: string; use_s2: boolean; use_ml: boolean; relative_orbit?: number | null }) =>
-    req<{ id: string }>('/api/jobs', { method: 'POST', body: JSON.stringify(body) }),
-  createFlowPath: (body: { lon: number; lat: number; length_km: number; corridor_m: number }) =>
+  createJob: (body: { aoi: Polygon; event: string; use_s2: boolean; use_ml: boolean; relative_orbit?: number | null; name?: string; note?: string }) =>
+    req<{ id: string; reused?: boolean }>('/api/jobs', { method: 'POST', body: JSON.stringify(body) }),
+  createFlowPath: (body: { lon: number; lat: number; length_km: number; corridor_m: number; name?: string }) =>
     req<{ id: string }>('/api/flowpath', { method: 'POST', body: JSON.stringify(body) }),
   job: (id: string) => req<Job>(`/api/jobs/${id}`),
   jobs: () => req<Job[]>('/api/jobs'),

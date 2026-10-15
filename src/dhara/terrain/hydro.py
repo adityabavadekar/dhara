@@ -46,18 +46,18 @@ def terrain_grid(analysis: Grid, buffer_m: float) -> Grid:
 
 
 def slope_degrees(dem: np.ndarray, res: float) -> np.ndarray:
-    gy, gx = np.gradient(dem, res)
-    return np.degrees(np.arctan(np.hypot(gx, gy))).astype(np.float32)
+    """Slope (degrees) of a DEM on a square grid of `res` metres."""
+    return d8.slope_deg(np.ascontiguousarray(dem, dtype=np.float64), float(res))
 
 
 def compute(dem: np.ndarray, grid: Grid, channel_area_km2: float = CHANNEL_AREA_KM2) -> Terrain:
     """Hydrological conditioning and derived layers. dem: (H, W) metres on `grid` (NaN = no data)."""
     dem = dem.astype(np.float64)
-    cond = d8.priority_flood_eps(dem, 1e-3)
+    cond, order = d8.priority_flood_eps(dem, 1e-3)
     fd = d8.flow_direction(cond)
-    acc = d8.accumulation(cond, fd)
+    acc = d8.accumulation(cond, fd, order)
     channels = acc * (grid.res**2) / 1e6 >= channel_area_km2
-    h = d8.hand(cond, fd, channels)
+    h = d8.hand(cond, fd, channels, order)
     h[h < 0] = 0.0
     filled = np.where(np.isfinite(dem), dem, np.nanmean(dem))
     return Terrain(

@@ -5,16 +5,21 @@ Jobs run in an in-process thread pool (the pipeline is I/O- and NumPy/GDAL-bound
 DuckDB. All geometry crossing the API is EPSG:4326 GeoJSON; all times are ISO 8601 UTC (…Z).
 """
 
+import base64
 import contextlib
 import functools
 import gzip
 import io
+import itertools
 import json
+import logging
 import shutil
 import threading
+import time
 import traceback
 import uuid
 import zipfile
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -32,7 +37,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from dhara.api.store import Store
 from dhara.config import OSM_SNAPSHOT_MAX, get_settings
 from dhara.geo import AOI, AOIError
-from dhara.timeutil import EventTime
+from dhara.timeutil import EventTime, now_utc
 
 ATTRIBUTIONS = [
     "Contains modified Copernicus Sentinel data 2026.",
@@ -102,14 +107,29 @@ def _resync_facts(store: Store, jobs_dir: Path) -> None:
             store.put_facts(d.name, json.loads(f.read_text())["facts"])
 
 
+def _warm_caches(limit: int = 10) -> None:
+    """Load the recent finished analyses' report data and suggested answers once at startup, so the
+    first visitor does not wait for them."""
+    for job in state["store"].recent(limit):
+        if job.get("kind") != "analysis" or job.get("status") != "done":
+            continue
+        with contextlib.suppress(Exception):
+            _warm_job(job["id"])
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     s = get_settings()
     state["store"] = Store(s.dhara_data_dir / "dhara.duckdb")
     _resync_facts(state["store"], s.jobs_dir)
-    state["pool"] = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dhara-job")
+    # One analysis at a time: a run uses several GB of memory and every core, so two at once would
+    # push the server into swap. Flow paths are lighter and get their own single worker.
+    state["analysis_pool"] = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dhara-analysis")
+    state["flowpath_pool"] = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dhara-flowpath")
+    threading.Thread(target=_warm_caches, daemon=True).start()
     yield
-    state["pool"].shutdown(wait=False, cancel_futures=True)
+    for k in ("analysis_pool", "flowpath_pool"):
+        state[k].shutdown(wait=False, cancel_futures=True)
 
 
 app = FastAPI(title="Dhara API", version="0.1.0", lifespan=lifespan)
@@ -131,6 +151,42 @@ class _CompressText:
         return await self.app(scope, receive, send)
 
 
+class _CacheFinishedJobs:
+    """Let browsers and proxies reuse what a finished analysis serves (its facts, layers, report data
+    and files do not change after it finishes). Job status, report status and the job list stay
+    uncached, since they change while a job runs."""
+
+    LIVE = ("/report/status", "/report/build")
+    HEADER = (b"cache-control", b"public, max-age=600, stale-while-revalidate=86400")
+
+    def __init__(self, app_):
+        self.app = app_
+
+    def _cacheable(self, scope) -> bool:
+        if scope["type"] != "http" or scope["method"] != "GET":
+            return False
+        parts = scope["path"].split("/")  # "", "api", "jobs", <id>, <rest...>
+        if len(parts) < 5 or parts[1:3] != ["api", "jobs"] or scope["path"].endswith(self.LIVE):
+            return False
+        job = state.get("store") and state["store"].get(parts[3])
+        return bool(job and job.get("status") == "done")
+
+    async def __call__(self, scope, receive, send):
+        if not self._cacheable(scope):
+            return await self.app(scope, receive, send)
+
+        async def send_cached(message):
+            if message["type"] == "http.response.start" and message.get("status") == 200:
+                headers = list(message.get("headers", []))
+                if not any(k.lower() == b"cache-control" for k, _ in headers):
+                    headers.append(self.HEADER)
+                message = {**message, "headers": headers}
+            await send(message)
+
+        return await self.app(scope, receive, send_cached)
+
+
+app.add_middleware(_CacheFinishedJobs)
 app.add_middleware(_CompressText)
 app.add_middleware(
     CORSMiddleware,
@@ -155,6 +211,10 @@ class AnalysisRequest(BaseModel):
     relative_orbit: int | None = None
     use_s2: bool = True
     use_ml: bool = True
+    name: str | None = None
+    note: str | None = Field(
+        default=None, max_length=200, description="Optional note shown with the run"
+    )
 
 
 class FlowPathRequest(BaseModel):
@@ -162,6 +222,7 @@ class FlowPathRequest(BaseModel):
     lat: float = Field(ge=-90, le=90)
     length_km: float = Field(default=40.0, gt=1, le=120)
     corridor_m: float = Field(default=600.0, gt=50, le=3000)
+    name: str | None = None
 
 
 class JobOut(BaseModel):
@@ -175,6 +236,12 @@ class JobOut(BaseModel):
     request: dict
     summary: dict | None = None
     error: str | None = None
+    location_name: str | None = None
+    started_utc: str | None = None
+    # Headline facts of a finished analysis (display text), for the job list's hover card.
+    brief: dict[str, str] | None = None
+    # Analyses ahead of this one in the queue (queued jobs only).
+    queue_ahead: int | None = None
 
 
 # ----------------------------------------------------------------------------- workers
@@ -184,7 +251,7 @@ def _run_analysis(job_id: str, req: AnalysisRequest) -> None:
     from dhara.jobs.pipeline import JobSpec, run_job
 
     st = store()
-    st.update(job_id, status="running", stage="starting")
+    st.update(job_id, status="running", stage="starting", started_utc=now_utc())
     try:
         spec = JobSpec(
             aoi=AOI(geojson=req.aoi),
@@ -200,7 +267,26 @@ def _run_analysis(job_id: str, req: AnalysisRequest) -> None:
         )
         facts = json.loads((res.job_dir / "facts.json").read_text())["facts"]
         st.put_facts(job_id, facts)
-        st.update(job_id, status="done", stage="done", progress=1.0, summary=res.summary)
+        loc = None
+        existing_loc = (st.get(job_id) or {}).get("location_name")
+        if not existing_loc:
+            from dhara.places import resolve_location_name
+
+            loc = resolve_location_name(
+                req=json.loads(req.model_dump_json()),
+                summary=res.summary,
+                job_id=job_id,
+                jobs_dir=get_settings().jobs_dir,
+            )
+        done_fields: dict[str, Any] = {
+            "status": "done",
+            "stage": "done",
+            "progress": 1.0,
+            "summary": res.summary,
+        }
+        if loc:
+            done_fields["location_name"] = loc
+        st.update(job_id, **done_fields)
         # Build the report PDFs now, in the background, so they are ready when someone opens them.
         threading.Thread(
             target=_prebuild_reports, args=(job_id,), daemon=True, name=f"report-{job_id}"
@@ -215,7 +301,7 @@ def _run_flowpath(job_id: str, req: FlowPathRequest) -> None:
     from dhara.flowpath.trace import save, trace
 
     st = store()
-    st.update(job_id, status="running", stage="terrain", progress=0.1)
+    st.update(job_id, status="running", stage="terrain", progress=0.1, started_utc=now_utc())
     try:
         fp = trace(req.lon, req.lat, length_km=req.length_km, corridor_m=req.corridor_m)
         save(fp, get_settings().jobs_dir / job_id)
@@ -288,7 +374,12 @@ def model() -> dict:
             "sen1floods11": s1,
         }
 
-    runs = [r for d in sorted((_REPO / "experiments").glob("*/")) if (r := read(d))]
+    # Metrics of every trained run (weights are not kept in the repository).
+    runs = [
+        r
+        for d in sorted((_REPO / "models" / "runs").glob("*/"))
+        if (r := read(d)) and r["mountain_held_out"]  # only runs scored on unseen events
+    ]
     return {"deployed": read(MODEL_DIR), "runs": runs}
 
 
@@ -324,6 +415,37 @@ def scenes(req: AnalysisRequest) -> dict:
     }
 
 
+# Runs waiting or in progress, per kind, before new requests are turned away.
+MAX_PENDING = {"analysis": 3, "flowpath": 3}
+_submit_lock = threading.Lock()
+PENDING = ("queued", "running")
+# Submission order of this process's runs (timestamps tie within a second). Queued runs never
+# outlive the process: a restart marks them failed.
+_submitted = itertools.count()
+_order: dict[str, int] = {}
+
+
+def _same_run(a: dict, b: dict) -> bool:
+    """True if two analysis requests would produce the same result (AOI in EPSG:4326)."""
+    keys = ("event", "use_s2", "use_ml", "relative_orbit")
+    try:
+        same_aoi = AOI(geojson=a["aoi"]).hash == AOI(geojson=b["aoi"]).hash
+    except (KeyError, AOIError, ValueError):
+        return False
+    return same_aoi and all(a.get(k) == b.get(k) for k in keys)
+
+
+def _check_capacity(kind: str, jobs: list[dict]) -> None:
+    pending = sum(1 for j in jobs if j["kind"] == kind and j["status"] in PENDING)
+    if pending >= MAX_PENDING[kind]:
+        what = "analyses" if kind == "analysis" else "flow paths"
+        raise HTTPException(
+            429,
+            f"The server is already working on {pending} {what}. Runs go one at a time; "
+            "try again in a few minutes, or open an earlier analysis meanwhile.",
+        )
+
+
 @app.post("/api/jobs", status_code=202)
 def create_job(req: AnalysisRequest) -> dict:
     try:
@@ -331,33 +453,78 @@ def create_job(req: AnalysisRequest) -> dict:
         aoi.check_size()
     except (AOIError, ValueError) as e:
         raise HTTPException(422, str(e)) from e
-    job_id = uuid.uuid4().hex[:12]
-    store().create(job_id, "analysis", json.loads(req.model_dump_json()))
-    state["pool"].submit(_run_analysis, job_id, req)
+    body = json.loads(req.model_dump_json())
+    if body.get("note"):
+        body["note"] = " ".join(body["note"].split()) or None
+    with _submit_lock:
+        jobs = store().recent(200)
+        # The same area, time and options already done or under way: open that run instead.
+        for j in jobs:
+            if (
+                j["kind"] == "analysis"
+                and j["status"] in (*PENDING, "done")
+                and _same_run(j["request"], body)
+            ):
+                return {"id": j["id"], "reused": True}
+        _check_capacity("analysis", jobs)
+        job_id = uuid.uuid4().hex[:12]
+        store().create(job_id, "analysis", body, location_name=req.name)
+        _order[job_id] = next(_submitted)
+    state["analysis_pool"].submit(_run_analysis, job_id, req)
     return {"id": job_id}
 
 
 @app.post("/api/flowpath", status_code=202)
 def create_flowpath(req: FlowPathRequest) -> dict:
-    job_id = "fp_" + uuid.uuid4().hex[:10]
-    store().create(job_id, "flowpath", req.model_dump())
-    state["pool"].submit(_run_flowpath, job_id, req)
+    with _submit_lock:
+        _check_capacity("flowpath", store().recent(200))
+        job_id = "fp_" + uuid.uuid4().hex[:10]
+        store().create(job_id, "flowpath", req.model_dump(), location_name=req.name)
+        _order[job_id] = next(_submitted)
+    state["flowpath_pool"].submit(_run_flowpath, job_id, req)
     return {"id": job_id}
+
+
+BRIEF_KEYS = (
+    "verdict_level",
+    "buildings_hit",
+    "settlements_cut_off",
+    "bridges_lost",
+    "area_debris_km2",
+    "area_flood_km2",
+    "s1_post_dates",
+    "s2_pair",
+)
+
+
+def _queue_ahead(job: dict, jobs: list[dict]) -> int | None:
+    if job["status"] != "queued" or job["id"] not in _order:
+        return None
+    mine = _order[job["id"]]
+    return sum(
+        1
+        for j in jobs
+        if j["kind"] == job["kind"] and j["status"] in PENDING and _order.get(j["id"], -1) < mine
+    )
 
 
 # The job list is polled every few seconds, so it carries only the summary fields the list shows;
 # the full summary (e.g. a flow path's elevation profile) comes from /api/jobs/{id}.
-LIST_SUMMARY_KEYS = ("area_km2", "settlements", "length_km")
+LIST_SUMMARY_KEYS = ("area_km2", "settlements", "length_km", "location")
 
 
 @app.get("/api/jobs")
 def list_jobs(limit: int = 30) -> list[JobOut]:
+    jobs = store().recent(limit)
+    briefs = store().fact_texts(
+        [j["id"] for j in jobs if j["kind"] == "analysis" and j["status"] == "done"], BRIEF_KEYS
+    )
     out = []
-    for j in store().recent(limit):
+    for j in jobs:
         row: dict[str, Any] = dict(j)
         if isinstance(s := row.get("summary"), dict):
             row["summary"] = {k: s[k] for k in LIST_SUMMARY_KEYS if k in s}
-        out.append(JobOut(**row))
+        out.append(JobOut(**row, brief=briefs.get(j["id"]), queue_ahead=_queue_ahead(j, jobs)))
     return out
 
 
@@ -366,7 +533,8 @@ def get_job(job_id: str) -> JobOut:
     j = store().get(job_id)
     if j is None:
         raise HTTPException(404, "job not found")
-    return JobOut(**j)
+    ahead = _queue_ahead(j, store().recent(200)) if j["status"] == "queued" else None
+    return JobOut(**j, queue_ahead=ahead)
 
 
 @app.get("/api/jobs/{job_id}/facts")
@@ -383,7 +551,6 @@ def job_facts(job_id: str) -> list[dict]:
 
 
 # Bump when the report map drawing changes, so cached maps are redrawn.
-SITREP_MAPS_VERSION = 6
 # Built frontend (pnpm build in web/); served at / and printed for the PDF report.
 _web_dist = Path(__file__).resolve().parents[3] / "web" / "dist"
 
@@ -457,38 +624,100 @@ def _sitrep_facts(d: Path) -> tuple[dict, Any]:
     return payload, f
 
 
-def _maps_key(d: Path, ids: dict) -> str:
-    # Rendering the report maps takes about a minute, so they are cached per job and redrawn only
-    # when an input they are drawn from changes (or a flow path is traced in the area).
-    inputs = [
-        d / n for n in ("classes.tif", "layers.json", "settlements.parquet", "web/change.geojson")
-    ]
-    return json.dumps(
-        [SITREP_MAPS_VERSION]
-        + [[p.name, p.stat().st_mtime_ns] for p in inputs if p.exists()]
-        + [ids.get("flowpaths", [])]
-    )
-
-
 def _sitrep_maps(d: Path, payload: dict, f: Any) -> dict:
-    from dhara.sitrep.facts import build
-    from dhara.sitrep.render import _maps
+    from dhara.sitrep.render import cached_maps
 
-    key = _maps_key(d, payload["ids"])
-    cache = d / "sitrep_maps.json"
-    if cache.exists():
-        cached = json.loads(cache.read_text())
-        if cached.get("key") == key:
-            return cached["maps"]
-    m = _maps(d, f if f is not None else build(d))
-    cache.write_text(json.dumps({"key": key, "maps": m}))
-    return m
+    return cached_maps(d, f, payload["ids"])
+
+
+# Responses that are slow to assemble (they re-check every input file) but rarely change: kept in
+# memory and served at once. After a minute the next request still gets the kept copy while it is
+# rebuilt in the background, so a later flow-path trace reaches them without anyone waiting.
+logger = logging.getLogger(__name__)
+_MEMO_TTL_S = 60.0
+_memo: dict[tuple, tuple[float, Any]] = {}
+_memo_lock = threading.Lock()
+_memo_refreshing: set[tuple] = set()
+
+
+def _memoized(key: tuple, build: Callable[[], Any]) -> Any:
+    with _memo_lock:
+        hit = _memo.get(key)
+        stale = hit is not None and time.monotonic() - hit[0] >= _MEMO_TTL_S
+        refresh = stale and key not in _memo_refreshing
+        if refresh:
+            _memo_refreshing.add(key)
+    if hit is None:
+        value = build()
+        with _memo_lock:
+            _memo[key] = (time.monotonic(), value)
+        return value
+    if refresh:
+
+        def rebuild() -> None:
+            try:
+                value = build()
+                with _memo_lock:
+                    _memo[key] = (time.monotonic(), value)
+            except Exception:
+                logger.exception("refreshing %s failed; keeping the previous copy", key)
+            finally:
+                with _memo_lock:
+                    _memo_refreshing.discard(key)
+
+        threading.Thread(target=rebuild, daemon=True).start()
+    return hit[1]
+
+
+def _warm_job(job_id: str) -> None:
+    """Build and keep what the dashboard fetches for a finished analysis after the map: the report
+    data (with the maps it shows), the suggested answers in both languages, and the WebP copies of
+    the satellite images."""
+    _sitrep_packed(job_id, "overview,satellite_pair")
+    d = _job_dir(job_id)
+    for p in (d / "web").glob("*.png"):
+        if p.name.startswith(PHOTO_PREFIXES):
+            _webp(p.resolve(), d)
+    for lang in ("en", "ne"):
+        assistant_suggested(job_id, lang)
 
 
 @app.get("/api/jobs/{job_id}/sitrep/data")
-def job_sitrep_data(job_id: str, maps: str = "") -> dict:
+def job_sitrep_data(job_id: str, request: Request, maps: str = "") -> Response:
     """Facts, tables and map images for the situation report. `maps` (comma list, e.g.
     "overview,satellite_pair") limits the images returned; empty returns all."""
+    _job_dir(job_id)
+    raw, packed = _sitrep_packed(job_id, maps)
+    if "gzip" in request.headers.get("accept-encoding", ""):
+        # Compressed once and kept (about 2 MB, mostly map images): the gzip middleware skips
+        # responses that already carry a Content-Encoding.
+        return Response(
+            packed,
+            media_type="application/json",
+            headers={"Content-Encoding": "gzip", "Vary": "Accept-Encoding"},
+        )
+    return Response(raw, media_type="application/json")
+
+
+def _sitrep_packed(job_id: str, maps: str) -> tuple[bytes, bytes]:
+    """The report data as JSON bytes, plain and gzip-compressed, kept in memory."""
+
+    def build() -> tuple[bytes, bytes]:
+        raw = json.dumps(_sitrep_data(job_id, maps), ensure_ascii=False).encode()
+        return raw, gzip.compress(raw, compresslevel=5)
+
+    return _memoized(("sitrep", job_id, maps), build)
+
+
+def _map_data_url(b64_png: str) -> str:
+    try:
+        webp = _webp_bytes(base64.b64decode(b64_png), quality=92)
+        return "data:image/webp;base64," + base64.b64encode(webp).decode()
+    except Exception:  # keep the PNG if it cannot be converted
+        return "data:image/png;base64," + b64_png
+
+
+def _sitrep_data(job_id: str, maps: str) -> dict:
     d = _job_dir(job_id)
     payload, f = _sitrep_facts(d)
     m = _sitrep_maps(d, payload, f)
@@ -502,7 +731,8 @@ def job_sitrep_data(job_id: str, maps: str = "") -> dict:
         "facts": payload["facts"],
         "values": payload["values"],
         "tables": payload["tables"],
-        "maps": m,
+        # WebP data URLs, about a fifth of the PNG size (this response is kept in memory).
+        "maps": {k: _map_data_url(v) for k, v in m.items()},
         # Which images the satellite-pair figure shows, so the page can label it correctly.
         "imagery": {
             "kind": img.get("kind"),
@@ -539,16 +769,36 @@ _report_locks: dict[tuple[str, str], threading.Lock] = {}
 _report_guard = threading.Lock()
 
 
+def _report_maps_key(d: Path, ids: dict) -> str:
+    from dhara.sitrep.render import maps_key
+
+    return maps_key(d, ids)
+
+
 def _report_key(d: Path, payload: dict, lang: str) -> str:
     return json.dumps(
         [
             lang,
             get_settings().public_url,
+            get_settings().web_url,
             _facts_inputs_key(d),
-            _maps_key(d, payload["ids"]),
+            _report_maps_key(d, payload["ids"]),
             (_web_dist / "index.html").stat().st_mtime_ns,
         ]
     )
+
+
+def _can_print() -> bool:
+    """Whether this server can print report PDFs itself (built frontend and a browser)."""
+    from dhara.sitrep.pdf import ReportRenderError, find_browser
+
+    if not (_web_dist / "index.html").exists():
+        return False
+    try:
+        find_browser()
+    except ReportRenderError:
+        return False
+    return True
 
 
 def _build_report_pdf(job_id: str, lang: str) -> Path:
@@ -556,11 +806,17 @@ def _build_report_pdf(job_id: str, lang: str) -> Path:
     page this server serves; reused while its inputs and the built frontend are unchanged."""
     from dhara.sitrep.pdf import render_pdf
 
-    if not (_web_dist / "index.html").exists():
-        raise RuntimeError(
-            "The frontend is not built, so the report page cannot be printed: run `pnpm build` in web/"
-        )
     d = _job_dir(job_id)
+    if not _can_print():
+        # A server without the built frontend or a browser (e.g. API-only hosting) serves the
+        # PDF built elsewhere, as it is.
+        prebuilt = d / f"report_{lang}.pdf"
+        if prebuilt.exists():
+            return prebuilt
+        raise RuntimeError(
+            "This server cannot print reports: it needs the built frontend (`pnpm build` in web/) "
+            "and Chromium, and no prebuilt report PDF is in the job folder."
+        )
     with _report_guard:
         lock = _report_locks.setdefault((job_id, lang), threading.Lock())
     with lock:
@@ -574,6 +830,7 @@ def _build_report_pdf(job_id: str, lang: str) -> Path:
         s = get_settings()
         query = urlencode(
             {"job": job_id, "origin": s.public_url.rstrip("/")}
+            | ({"web": s.web_url.rstrip("/")} if s.web_url else {})
             | ({"lang": "ne"} if lang == "ne" else {})
         )
         try:
@@ -587,6 +844,10 @@ def _build_report_pdf(job_id: str, lang: str) -> Path:
 
 
 def _prebuild_reports(job_id: str) -> None:
+    """After an analysis finishes: prepare its report data, maps and suggested answers, then its
+    PDFs, so nothing waits when someone opens them."""
+    with contextlib.suppress(Exception):
+        _warm_job(job_id)
     for lang in ("en", "ne"):
         try:
             _build_report_pdf(job_id, lang)
@@ -606,8 +867,11 @@ def job_report_status(job_id: str) -> dict[str, str]:
             out[lang] = state
             continue
         pdf, key_file = d / f"report_{lang}.pdf", d / f"report_{lang}.key"
+        if not _can_print():
+            out[lang] = "ready" if pdf.exists() else "missing"
+            continue
         ready = False
-        if pdf.exists() and key_file.exists() and (_web_dist / "index.html").exists():
+        if pdf.exists() and key_file.exists():
             cache = d / "sitrep_facts.json"
             with contextlib.suppress(Exception):
                 payload = json.loads(cache.read_text())["payload"]
@@ -734,6 +998,36 @@ def _gzipped(p: Path, d: Path) -> Path:
     return out
 
 
+# Satellite photos (the before/after swipe) are served as lossless WebP: 25-50% smaller than the
+# PNG and pixel-identical. Lossy WebP (quality 85) was a tenth of the size but halved colour
+# resolution, greying out small roofs when zoomed in. Class layers stay PNG (exact colours).
+PHOTO_PREFIXES = ("optical_", "radar_")
+
+
+def _webp_bytes(png: bytes, quality: int | None) -> bytes:
+    """WebP from PNG bytes; `quality` None means lossless."""
+    from PIL import Image
+
+    out = io.BytesIO()
+    opts = {"lossless": True} if quality is None else {"quality": quality}
+    Image.open(io.BytesIO(png)).save(out, "WEBP", method=4, **opts)
+    return out.getvalue()
+
+
+def _webp(p: Path, d: Path, quality: int | None = None) -> Path:
+    """A WebP copy of a job image in <job>/cache, made once (lossless by default)."""
+    kind = "lossless" if quality is None else f"q{quality}"
+    name = str(p.relative_to(d.resolve())).replace("/", "__") + ".webp"
+    out = d / "cache" / f"webp-{kind}" / name
+    if out.exists() and out.stat().st_mtime_ns >= p.stat().st_mtime_ns:
+        return out
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_suffix(".tmp")
+    tmp.write_bytes(_webp_bytes(p.read_bytes(), quality))
+    tmp.replace(out)
+    return out
+
+
 @app.get("/api/jobs/{job_id}/files/{name:path}")
 def job_file(job_id: str, name: str, request: Request, slim: bool = False):
     d = _job_dir(job_id)
@@ -755,6 +1049,8 @@ def job_file(job_id: str, name: str, request: Request, slim: bool = False):
         ".pdf": "application/pdf",
         ".tif": "image/tiff",
     }.get(p.suffix, "application/octet-stream")
+    if p.suffix == ".png" and p.name.startswith(PHOTO_PREFIXES):
+        return FileResponse(_webp(p, d), media_type="image/webp")
     big_text = p.suffix in (".geojson", ".json") and p.stat().st_size > 256_000
     if big_text and "gzip" in request.headers.get("accept-encoding", ""):
         return FileResponse(
@@ -826,7 +1122,8 @@ def assistant_suggested(job_id: str, lang: str = "en") -> list[dict]:
     (templates, no language model), for instant display."""
     from dhara.assistant.service import suggested_answers
 
-    return suggested_answers(_job_dir(job_id), lang=lang)
+    d = _job_dir(job_id)
+    return _memoized(("suggested", job_id, lang), lambda: suggested_answers(d, lang=lang))
 
 
 @app.post("/api/jobs/{job_id}/chat")

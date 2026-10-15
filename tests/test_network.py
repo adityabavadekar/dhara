@@ -73,3 +73,22 @@ def test_unobserved_edges_stay_open_deterministically():
     res = G.analyse(net, places, health, buildings, (-5000, -5000, 9000, 6000), CRS_, mc_draws=0)
     assert set(res.settlements["status"]) == {"connected"}
     assert res.meta["edges_unobserved"] == res.meta["edges"]
+
+
+def test_road_loss_is_reported_even_when_a_footpath_remains():
+    roads, places, health, buildings = _scene()
+    # A footpath crossing the river on its own (unharmed) footbridge, north of the road bridge.
+    path = _gdf(
+        [LineString([(500, 500), (500, 800), (3500, 800), (3500, 500)])], [{"highway": "path"}]
+    )
+    path["osm_id"] = ["way/99"]
+    roads = pd.concat([roads, path], ignore_index=True)
+    prob = np.zeros((GRID.height, GRID.width), np.float32)
+    prob[40:60, 195:205] = 0.95  # rows for y 400-600: only the road bridge (y = 500) is hit
+    net = G.build(roads, CRS_)
+    G.edge_hazard(net, prob, GRID)
+    res = G.analyse(net, places, health, buildings, (-5000, -5000, 9000, 6000), CRS_, mc_draws=0)
+    s = res.settlements.set_index("name")
+    assert s.loc["A", "status"] == "detour"  # still reachable on foot
+    assert s.loc["A", "vehicle_access"] == "lost"
+    assert s.loc["B", "vehicle_access"] == "kept"

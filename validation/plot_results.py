@@ -128,7 +128,7 @@ def model_scores():
     x = range(len(names))
     w = 0.38
     fig, ax = plt.subplots(figsize=(9, 4.4))
-    kw = {"capsize": 3, "error_kw": {"ecolor": MUTED, "elinewidth": 1}}
+    ekw = {"ecolor": MUTED, "elinewidth": 1}
     b1 = ax.bar(
         [i - w / 2 for i in x],
         test,
@@ -136,7 +136,8 @@ def model_scores():
         color=GREY,
         label="Test events (7)",
         yerr=err(test, test_ci),
-        **kw,
+        capsize=3,
+        error_kw=ekw,
     )
     b2 = ax.bar(
         [i + w / 2 for i in x],
@@ -145,7 +146,8 @@ def model_scores():
         color=BLUE,
         label="Unseen mountain events (4)",
         yerr=err(mountain, mountain_ci),
-        **kw,
+        capsize=3,
+        error_kw=ekw,
     )
     b1[0].set_hatch("//")
     b1[0].set_edgecolor("white")

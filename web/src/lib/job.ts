@@ -2,7 +2,7 @@
 // string ("48.41", "None", "[[85.2, 28.3], …]"), so everything is parsed here, once.
 // All coordinates are EPSG:4326 [lon, lat].
 import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { type QueryClient, useQuery } from '@tanstack/react-query'
 import { api, fileUrl, type Fact, type Job } from '@/lib/api'
 
 export type LngLat = [number, number]
@@ -96,6 +96,7 @@ export const STATUS_LABEL: Record<string, string> = {
   cut_off: 'Cut off',
   hospital_cut_off: 'No hospital access',
   detour: 'Longer route',
+  road_lost: 'No road, on foot only',
   connected: 'Connected',
   no_baseline_route: 'No route before event',
   not_on_network: 'No mapped road',
@@ -113,6 +114,7 @@ export const STATUS_COLOR: Record<string, string> = {
   cut_off: '#b91c1c',
   hospital_cut_off: '#ea580c',
   detour: '#d97706',
+  road_lost: '#ea580c',
   connected: '#16a34a',
   no_baseline_route: '#94a3b8',
   not_on_network: '#cbd5e1',
@@ -224,6 +226,7 @@ export function useJob(id: string | null) {
     queryKey: ['job', id],
     queryFn: () => api.job(id!),
     enabled: !!id,
+    staleTime: 10_000, // a prefetched job is reused; running jobs still poll below
     refetchInterval: (q) => (q.state.data && ['done', 'failed'].includes(q.state.data.status) ? false : 1500),
   })
 }
@@ -245,7 +248,8 @@ export function useSettlementRoute(jobId: string | null, sel: { kind: string; pr
 
 /** Facts ledger as a lookup. `t(key)` returns the formatted text, or null when the fact is missing. */
 export function useFacts(id: string | null, enabled: boolean) {
-  const q = useQuery({ queryKey: ['facts', id], queryFn: () => api.facts(id!), enabled: !!id && enabled })
+  // Facts of a finished job never change.
+  const q = useQuery({ queryKey: ['facts', id], queryFn: () => api.facts(id!), enabled: !!id && enabled, staleTime: Infinity })
   return useMemo(() => {
     const by = Object.fromEntries((q.data ?? []).map((f: Fact) => [f.key, f])) as Record<string, Fact>
     const t = (k: string): string | null => (by[k] && by[k].text !== '' ? by[k].text : null)
@@ -254,7 +258,16 @@ export function useFacts(id: string | null, enabled: boolean) {
   }, [q.data, q.isSuccess])
 }
 
-function useGeo(id: string | null, done: boolean, name: string, path: string | undefined) {
+/** Start loading a finished analysis's job record, layer list and facts together. Opening a job
+ *  otherwise loads them one after another, each waiting on the network. */
+export function prefetchJob(qc: QueryClient, id: string) {
+  void qc.prefetchQuery({ queryKey: ['job', id], queryFn: () => api.job(id), staleTime: 10_000 })
+  void qc.prefetchQuery({ queryKey: ['manifest', id], queryFn: () => api.manifest(id), staleTime: Infinity })
+  void qc.prefetchQuery({ queryKey: ['facts', id], queryFn: () => api.facts(id), staleTime: Infinity })
+}
+
+/** One map layer of a finished job, shared by the side panel and the map so it downloads once. */
+export function useGeo(id: string | null, done: boolean, name: string, path: string | undefined) {
   return useQuery({
     queryKey: ['gj', id, name],
     queryFn: () => api.geojson(id!, path!),
@@ -396,25 +409,57 @@ export function jobAoiRing(job: Job | undefined): number[][] | null {
   return aoi?.coordinates?.[0] ?? null
 }
 
-/** Short, human label for an analysis job: event date + AOI centre. */
+const KNOWN_REGIONS: { name: string; bbox: [number, number, number, number] }[] = [
+  { name: 'Bidur (Trishuli)', bbox: [85.08, 27.85, 85.22, 27.97] },
+  { name: 'Trishuli Valley', bbox: [85.05, 27.8, 85.45, 28.35] },
+  { name: 'Melamchi Valley', bbox: [85.48, 27.75, 85.68, 27.98] },
+  { name: 'Teesta / Chungthang', bbox: [88.55, 27.5, 88.75, 27.7] },
+  { name: 'Beas, Mandi', bbox: [76.8, 31.6, 77.05, 31.8] },
+  { name: 'Chamoli / Rishiganga', bbox: [79.55, 30.4, 79.85, 30.6] },
+]
+
+/** Short, human label for an analysis job: location name + event date / area. */
 export function jobLabel(job: Job): { title: string; sub: string } {
   const ev = String(job.request.event ?? '').slice(0, 10)
   const ring = jobAoiRing(job)
   let where = ''
+  let regionName: string | null = null
   if (ring) {
     const [x0, y0, x1, y1] = bounds(ring)
-    where = `${((y0 + y1) / 2).toFixed(3)}°N ${((x0 + x1) / 2).toFixed(3)}°E`
+    const cx = (x0 + x1) / 2
+    const cy = (y0 + y1) / 2
+    where = `${cy.toFixed(3)}°N ${cx.toFixed(3)}°E`
+    const matched = KNOWN_REGIONS.find((r) => cx >= r.bbox[0] && cx <= r.bbox[2] && cy >= r.bbox[1] && cy <= r.bbox[3])
+    if (matched) regionName = matched.name
   }
   // summary.area_km2 holds the AOI split by class; their sum is the AOI area.
   const parts = (job.summary as { area_km2?: Record<string, number> } | null)?.area_km2
   const km2 = parts && typeof parts === 'object' ? Object.values(parts).reduce((a, b) => a + (Number(b) || 0), 0) : null
-  if (km2 != null) where = `${km2 >= 100 ? Math.round(km2).toLocaleString('en') : km2.toFixed(1)} km² · ${where}`
   const d = ev ? new Date(`${ev}T00:00:00Z`) : null
-  const title = d ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : 'Analysis'
-  return { title, sub: where }
+  const dateStr = d ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : ''
+
+  const loc =
+    job.location_name ||
+    (typeof job.request.name === 'string' && job.request.name.trim() ? job.request.name.trim() : null) ||
+    ((job.summary as { location?: string } | null)?.location ?? null) ||
+    regionName
+
+  if (loc) {
+    const areaPart = km2 != null ? `${km2 >= 100 ? Math.round(km2).toLocaleString('en') : km2.toFixed(1)} km²` : where
+    return {
+      title: loc,
+      sub: dateStr ? `${dateStr} · ${areaPart}` : areaPart,
+    }
+  }
+
+  const title = dateStr || 'Analysis'
+  const sub = km2 != null ? `${km2 >= 100 ? Math.round(km2).toLocaleString('en') : km2.toFixed(1)} km² · ${where}` : where
+  return { title, sub }
 }
 
-export const fmtKm = (v: number | null, d = 1) => (v == null ? '—' : `${v.toFixed(d)} km`)
+/** Fixed decimals, but a small positive value never reads as zero: 0.003 with 2 decimals is "<0.01". */
+export const fixed = (v: number, d: number) => (v > 0 && v < 10 ** -d / 2 ? `<${(10 ** -d).toFixed(d)}` : v.toFixed(d))
+export const fmtKm = (v: number | null, d = 1) => (v == null ? '—' : `${fixed(v, d)} km`)
 export const fmtHours = (v: number | null) => {
   if (v == null) return '—'
   if (v < 1) return `${Math.round(v * 60)} min`

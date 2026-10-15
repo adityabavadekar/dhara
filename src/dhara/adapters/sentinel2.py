@@ -23,6 +23,8 @@ class S2Scene(BaseModel):
     day: date
     scene_ids: list[str]
     aoi_cloud_fraction: float | None = None  # NaN-free fraction of AOI not observable
+    # Same, over ground a flood or debris can reach inside the AOI (None: not measured).
+    reach_cloud_fraction: float | None = None
 
 
 class S2Pair(BaseModel):
@@ -71,10 +73,16 @@ def candidate_days(aoi: AOI, event: date | datetime, window_days: int = 20) -> l
     return [S2Scene(day=d, scene_ids=sorted(ids)) for d, ids in sorted(by_day.items())]
 
 
+def cloud_mask(scene: S2Scene, grid60: Grid) -> np.ndarray:
+    """True where a pixel is cloud / shadow / cirrus / no data, on the coarse grid `grid60`
+    (projected, typically 60 m)."""
+    scl = sh_process(grid60, [_day_filter(scene.day)], _EVAL_SCL, 1)[0]
+    return np.isin(np.nan_to_num(scl, nan=0).astype(np.uint8), SCL_INVALID)
+
+
 def aoi_cloud_fraction(scene: S2Scene, grid60: Grid, in_aoi: np.ndarray) -> float:
     """Fraction of AOI pixels that are cloud / shadow / cirrus / no data. grid60: coarse grid."""
-    scl = sh_process(grid60, [_day_filter(scene.day)], _EVAL_SCL, 1)[0]
-    bad = np.isin(np.nan_to_num(scl, nan=0).astype(np.uint8), SCL_INVALID)
+    bad = cloud_mask(scene, grid60)
     return float(bad[in_aoi].mean()) if in_aoi.any() else 1.0
 
 
@@ -83,20 +91,30 @@ def choose_pair(
     event: date | datetime,
     *,
     max_cloud: float = 0.6,
+    max_reach_cloud: float = 0.75,
     days_weight: float = 0.01,
 ) -> S2Pair:
-    """Clearest pre (before the event day) and post (after) scenes; score = cloud + 0.01·|days|."""
+    """Clearest pre (before the event day) and post (after) scenes; score = AOI cloud + 0.01·|days|.
+
+    A scene is usable if its cloud over reachable ground is at most `max_reach_cloud` (when
+    measured), else if its AOI cloud is at most `max_cloud`. Cloudy pixels are masked one by one
+    when the images are used, so a scene whose valleys are partly clear still adds evidence there;
+    over a large mountain area the AOI-wide limit would reject it for clouds on the ridges.
+    """
     day = event_day_utc(event)
 
     def score(s: S2Scene) -> float:
         assert s.aoi_cloud_fraction is not None
         return s.aoi_cloud_fraction + days_weight * abs((s.day - day).days)
 
-    ok = [
-        s
-        for s in candidates
-        if s.aoi_cloud_fraction is not None and s.aoi_cloud_fraction <= max_cloud
-    ]
+    def usable(s: S2Scene) -> bool:
+        if s.aoi_cloud_fraction is None:
+            return False
+        if s.reach_cloud_fraction is not None:
+            return s.reach_cloud_fraction <= max_reach_cloud
+        return s.aoi_cloud_fraction <= max_cloud
+
+    ok = [s for s in candidates if usable(s)]
     pre = [s for s in ok if s.day < day]
     post = [s for s in ok if s.day > day]
     return S2Pair(

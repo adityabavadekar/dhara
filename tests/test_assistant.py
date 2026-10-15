@@ -263,3 +263,22 @@ def test_verified_answers_persist_on_disk(tmp_path):
     service._cache_chat_answer(bad, "x", "assistant_unavailable", job)
     service._CHAT_RESPONSE_CACHE.clear()
     assert service._get_cached_chat_answer(bad, job) is None
+
+
+def test_declined_questions_answer_from_facts_only():
+    from dhara.assistant import service
+
+    ids = {s[0] for s in service.SUGGESTIONS}
+    assert {"deaths", "fabricate"} <= ids
+    ctx = {"kpis": {"settlements_cut_off": {"text": "3"}, "settlements_total": {"text": "40"}}}
+    ans = service._short_answer("fabricate", ctx, "en")
+    assert ans is not None and "500" not in ans and "**3** of **40**" in ans
+    assert "Not measured" in (service._not_measured("how many people died", ctx, "en") or "")
+
+
+def test_display_numbers_with_small_value_marker_parse():
+    from dhara.assistant.service import _text_num
+
+    assert _text_num("1,234") == 1234
+    assert 0 < _text_num("<0.1") < 0.1
+    assert _text_num("") == 0

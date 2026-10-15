@@ -5,6 +5,7 @@ import { useApp } from '@/context/app-state'
 import { api } from '@/lib/api'
 import { useJobData } from '@/lib/job'
 import { nameKeys, searchRank } from '@/lib/translit'
+import { hasHan, usePinyinReady } from '@/lib/pinyin'
 import { Input } from '@/components/ui/input'
 import { StatusBadge } from '@/features/workspace/common'
 
@@ -30,13 +31,16 @@ export function MapSearch() {
   // Empty box: the settlements that most need attention (list is already ranked worst first) and
   // hospitals. Typed text: name matches from the first character, Latin spelling included.
   // Search keys (transliterations included) are built once per analysis, not on every keystroke.
+  // Chinese names (border villages) get pinyin keys once that library has loaded.
+  const needsPinyin = useMemo(() => d.settlements.some((x) => hasHan(x.name)), [d.settlements])
+  const pinyinReady = usePinyinReady(needsPinyin)
   const index = useMemo(
     () => ({
       s: d.settlements.map((x) => [x, nameKeys(x.name)] as const),
       h: d.hospitals.map((x) => [x, nameKeys(x.name)] as const),
       b: d.bridges.filter((x) => x.name && !/^(unnamed|unclassified|path|track|footway)$/i.test(x.name)).map((x) => [x, nameKeys(x.name)] as const),
     }),
-    [d.settlements, d.hospitals, d.bridges],
+    [d.settlements, d.hospitals, d.bridges, pinyinReady],
   )
   const hits = useMemo(() => {
     if (!query)

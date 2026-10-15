@@ -10,14 +10,22 @@ import {
 } from 'lucide-react'
 import { useApp } from '@/context/app-state'
 import { apiUrl } from '@/lib/api'
-import { STATUS_COLOR, type useJobData } from '@/lib/job'
+import { fixed, STATUS_COLOR, type useJobData } from '@/lib/job'
 import { Button } from '@/components/ui/button'
 import { PdfButton } from '@/features/report/pdf-button'
 import { Dot, List, Note, Row, Section, Stack, StatusBadge } from './common'
 
 type Data = ReturnType<typeof useJobData>
 
-function Mini({ label, value, sub }: { label: string; value: string | null; sub?: string }) {
+// Mirrors the verdict rules in src/dhara/sitrep/facts.py; keep the two in step.
+const SEVERITY_RULES: [string, string][] = [
+  ['SEVERE', 'High-confidence: ≥ 1 km² flood or debris, ≥ 250 buildings hit, or ≥ 5 bridges lost'],
+  ['HIGH', 'High-confidence: ≥ 0.1 km², ≥ 25 buildings, or ≥ 2 bridges lost'],
+  ['MODERATE', 'Any confidence: a community cut off, without hospital access or without a road to one, ≥ 50 buildings, or ≥ 0.25 km²'],
+  ['LOW', 'None of the above'],
+]
+
+function Mini({ label, value, sub, note }: { label: string; value: string | null; sub?: string; note?: string }) {
   return (
     <div className='min-w-0'>
       <div className='truncate text-[0.6875rem] text-foreground/70'>{label}</div>
@@ -25,15 +33,25 @@ function Mini({ label, value, sub }: { label: string; value: string | null; sub?
         {value ?? '—'}
         {sub && <span className='ml-1 text-xs font-normal text-muted-foreground'>{sub}</span>}
       </div>
+      {note && <div className='truncate text-[0.6875rem] text-muted-foreground tabular-nums'>{note}</div>}
     </div>
   )
 }
+
+// "High confidence" means two or more independent methods agree; the severity level counts only these.
+const sure = (v: string | null) => (v != null ? `${v} high confidence` : undefined)
 
 export function Overview({ d }: { d: Data }) {
   const app = useApp()
   const { t, n } = d.facts
   const id = d.job.data!.id
-  const urgent = d.settlements.filter((s) => s.status === 'cut_off' || s.status === 'hospital_cut_off')
+  // Runs made before road access was measured fall back to the on-foot "cut off" count.
+  // Also when no settlement had a road to a hospital before the event (nothing to compare).
+  const hasRoad = t('settlements_vehicle_lost') != null && (n('settlements_vehicle_before') ?? 0) > 0
+  const roadLost = (s: (typeof d.settlements)[number]) => s.raw.vehicle_access === 'lost'
+  const urgent = d.settlements
+    .filter((s) => s.status === 'cut_off' || s.status === 'hospital_cut_off' || roadLost(s))
+    .sort((a, b) => b.buildings - a.buildings)
   const topRepair = d.repairs[0]
   const lost = d.bridges.filter((b) => b.status === 'likely_lost')
   const change = d.change
@@ -87,6 +105,20 @@ export function Overview({ d }: { d: Data }) {
                 Severity counts only high-confidence change (two or more independent signals agree).
               </div>
             </div>
+            <div>
+              <div className='font-semibold text-foreground/90'>How the level is set</div>
+              <dl className='mt-1 space-y-0.5 text-[0.6875rem] leading-snug text-muted-foreground'>
+                {SEVERITY_RULES.map(([lv, rule]) => (
+                  <div key={lv} className='flex gap-2'>
+                    <dt className={`w-16 shrink-0 font-semibold ${lv === level ? 'text-foreground' : ''}`}>{lv}</dt>
+                    <dd>{rule}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className='mt-1 text-[0.6875rem] leading-snug text-muted-foreground/80'>
+                The first level that matches applies. Thresholds rank runs; they are design choices, not calibrated against outcomes.
+              </div>
+            </div>
             <div className='text-[0.6875rem] leading-snug text-muted-foreground/80'>
               People displaced: <i>not measured</i> (no population data is used; buildings hit is the closest proxy).
             </div>
@@ -96,7 +128,7 @@ export function Overview({ d }: { d: Data }) {
 
       <div className='space-y-2'>
         {/* 1. Where did the flood hit? */}
-        <div className='rounded-lg bg-amber-500/[0.04] p-3 shadow-xs dark:bg-amber-950/20'>
+        <div className='rounded-lg bg-amber-500/[0.04] p-3 shadow-xs dark:bg-amber-500/[0.05]'>
           <div className='flex items-center gap-2 pb-2.5 text-xs font-semibold text-amber-800 dark:text-amber-300'>
             <Waves className='size-3.5 text-amber-600' />
             <span>Where did the flood hit?</span>
@@ -104,14 +136,14 @@ export function Overview({ d }: { d: Data }) {
           <button
             type='button'
             onClick={() => app.setView('flooding')}
-            className='w-full rounded-md border border-amber-500/25 bg-background/90 p-2.5 text-left transition-colors hover:border-amber-500/50 hover:bg-background'
+            className='w-full rounded-md bg-amber-500/[0.08] p-2.5 text-left transition-colors hover:bg-amber-500/[0.14] dark:bg-background/90 dark:hover:bg-amber-500/[0.08]'
           >
             <div className='flex items-baseline justify-between'>
               <span className='text-[0.6875rem] font-medium text-foreground/80'>Mapped flood and debris</span>
               <span className='text-xs text-muted-foreground'>of {t('aoi_area_km2') ?? '—'} km²</span>
             </div>
             <div className='mt-1 flex items-baseline gap-1.5'>
-              <span className='text-2xl font-bold tabular-nums text-foreground'>{hazardKm2.toLocaleString('en', { maximumFractionDigits: 2 })}</span>
+              <span className='text-xl font-bold tabular-nums sm:text-2xl text-foreground'>{hazardKm2 > 0 && hazardKm2 < 0.005 ? '<0.01' : hazardKm2.toLocaleString('en', { maximumFractionDigits: 2 })}</span>
               <span className='text-sm text-muted-foreground'>
                 km² · {t('area_debris_km2') ?? '—'} debris and scour, {t('area_flood_km2') ?? '—'} new water
               </span>
@@ -135,7 +167,7 @@ export function Overview({ d }: { d: Data }) {
             </div>
           </button>
           {change && (
-            <div className='mt-2 space-y-1 rounded-md border border-amber-500/20 bg-amber-500/[0.06] p-2 text-[0.6875rem] text-muted-foreground'>
+            <div className='mt-2 space-y-1 rounded-md bg-amber-500/[0.06] p-2 dark:bg-white/[0.02] text-[0.6875rem] text-muted-foreground'>
               <div className='space-y-0.5'>
                 {riverWidthDelta != null && riverWidthDelta > 0 && (
                   <div>
@@ -144,7 +176,7 @@ export function Overview({ d }: { d: Data }) {
                 )}
                 {openWaterDelta != null && openWaterDelta > 0 && (
                   <div>
-                    • Open water <b className='font-semibold text-foreground'>+{openWaterPct}%</b> ({change.water_before_km2.toFixed(2)} → {change.water_after_km2.toFixed(2)} km²)
+                    • Open water <b className='font-semibold text-foreground'>+{openWaterPct}%</b> ({fixed(change.water_before_km2, 2)} → {fixed(change.water_after_km2, 2)} km²)
                   </div>
                 )}
                 {change.shift_max_m != null && change.shift_max_m > 0 && (
@@ -154,7 +186,7 @@ export function Overview({ d }: { d: Data }) {
                 )}
               </div>
               {change.clear_both_pct != null && (
-                <div className='border-t border-amber-500/15 pt-1 text-[0.625rem] text-muted-foreground/80'>
+                <div className='border-t border-foreground/10 pt-1 text-[0.625rem] text-muted-foreground/80'>
                   Measured on the {change.clear_both_pct.toFixed(1)}% of the area clear in both optical images
                 </div>
               )}
@@ -163,7 +195,7 @@ export function Overview({ d }: { d: Data }) {
         </div>
 
         {/* 2. What was damaged? */}
-        <div className='rounded-lg bg-orange-500/[0.04] p-3 shadow-xs dark:bg-orange-950/20'>
+        <div className='rounded-lg bg-orange-500/[0.04] p-3 shadow-xs dark:bg-orange-500/[0.05]'>
           <div className='flex items-center gap-2 pb-2.5 text-xs font-semibold text-orange-800 dark:text-orange-300'>
             <Building2 className='size-3.5 text-orange-600' />
             <span>What was damaged?</span>
@@ -171,16 +203,16 @@ export function Overview({ d }: { d: Data }) {
           <button
             type='button'
             onClick={() => app.setView('damage')}
-            className='grid w-full grid-cols-3 gap-2 rounded-md border border-orange-500/25 bg-background/90 p-2.5 text-left transition-colors hover:border-orange-500/50 hover:bg-background'
+            className='grid w-full grid-cols-3 gap-2 rounded-md bg-orange-500/[0.08] p-2.5 text-left transition-colors hover:bg-orange-500/[0.14] dark:bg-background/90 dark:hover:bg-orange-500/[0.08]'
           >
-            <Mini label='Buildings hit' value={t('buildings_hit')} sub={t('buildings_total') ? `of ${t('buildings_total')}` : undefined} />
+            <Mini label='Buildings hit' value={t('buildings_hit')} sub={t('buildings_total') ? `of ${t('buildings_total')}` : undefined} note={sure(t('buildings_hit_high'))} />
             <Mini label='Impassable road' value={t('network_failed_km') != null ? `${t('network_failed_km')} km` : null} />
-            <Mini label='Bridges lost' value={t('bridges_lost')} sub={(n('bridges_at_risk') ?? 0) > 0 ? `+${t('bridges_at_risk')} at risk` : undefined} />
+            <Mini label='Bridges lost' value={t('bridges_lost')} sub={(n('bridges_at_risk') ?? 0) > 0 ? `+${t('bridges_at_risk')} at risk` : undefined} note={sure(t('bridges_lost_high'))} />
           </button>
         </div>
 
         {/* 3. Who is cut off? */}
-        <div className='rounded-lg bg-red-500/[0.04] p-3 shadow-xs dark:bg-red-950/20'>
+        <div className='rounded-lg bg-red-500/[0.04] p-3 shadow-xs dark:bg-red-500/[0.05]'>
           <div className='flex items-center gap-2 pb-2.5 text-xs font-semibold text-red-800 dark:text-red-300'>
             <MapPin className='size-3.5 text-red-600' />
             <span>Who is cut off?</span>
@@ -189,28 +221,32 @@ export function Overview({ d }: { d: Data }) {
             <button
               type='button'
               onClick={() => app.setView('cutoff')}
-              className='group rounded-md border border-red-500/25 bg-background/90 p-2.5 text-left transition-colors hover:border-red-500/50 hover:bg-background'
+              className='group rounded-md bg-red-500/[0.08] p-2.5 text-left transition-colors hover:bg-red-500/[0.14] dark:bg-background/90 dark:hover:bg-red-500/[0.08]'
             >
               <div className='flex items-center justify-between text-[0.6875rem] font-medium text-foreground/80'>
-                <span>No road out</span>
+                <span>{hasRoad ? 'Lost road to a hospital' : 'No way out'}</span>
                 <ArrowRight className='size-3 text-muted-foreground transition-transform group-hover:translate-x-0.5' />
               </div>
-              <div className='mt-1 text-2xl font-bold tabular-nums text-red-700 dark:text-red-400'>
-                {t('settlements_cut_off')}
-                <span className='ml-1 text-xs font-normal text-muted-foreground'>of {t('settlements_total')}</span>
+              <div className={`mt-1 text-xl font-bold tabular-nums sm:text-2xl ${(n(hasRoad ? 'settlements_vehicle_lost' : 'settlements_cut_off') ?? 0) > 0 ? 'text-red-700 dark:text-red-400' : 'text-foreground'}`}>
+                {t(hasRoad ? 'settlements_vehicle_lost' : 'settlements_cut_off')}
+                <span className='ml-1 text-xs font-normal text-muted-foreground'>of {t(hasRoad ? 'settlements_vehicle_before' : 'settlements_total')}</span>
               </div>
-              <div className='mt-0.5 text-[0.6875rem] text-muted-foreground'>communities · {t('settlements_hospital_cut_off') ?? '—'} more without a hospital</div>
+              <div className='mt-0.5 text-[0.6875rem] text-muted-foreground'>
+                {hasRoad
+                  ? `communities that had one · ${t('settlements_cut_off') ?? '—'} with no way out, even on foot`
+                  : `communities · ${t('settlements_hospital_cut_off') ?? '—'} more without a hospital`}
+              </div>
             </button>
             <button
               type='button'
               onClick={() => app.setView('cutoff')}
-              className='group rounded-md border border-red-500/25 bg-background/90 p-2.5 text-left transition-colors hover:border-red-500/50 hover:bg-background'
+              className='group rounded-md bg-red-500/[0.08] p-2.5 text-left transition-colors hover:bg-red-500/[0.14] dark:bg-background/90 dark:hover:bg-red-500/[0.08]'
             >
               <div className='flex items-center justify-between text-[0.6875rem] font-medium text-foreground/80'>
-                <span>Buildings nearby</span>
+                <span>{hasRoad ? 'Buildings in them' : 'Buildings nearby'}</span>
                 <ArrowRight className='size-3 text-muted-foreground transition-transform group-hover:translate-x-0.5' />
               </div>
-              <div className='mt-1 text-2xl font-bold tabular-nums text-foreground'>{t('buildings_in_cut_off')}</div>
+              <div className='mt-1 text-xl font-bold tabular-nums sm:text-2xl text-foreground'>{t(hasRoad ? 'buildings_in_vehicle_lost' : 'buildings_in_cut_off')}</div>
               <div className='mt-0.5 text-[0.6875rem] text-muted-foreground'>within {t('exposure_radius_m') ?? '—'} m · no population data</div>
             </button>
           </div>
@@ -233,7 +269,7 @@ export function Overview({ d }: { d: Data }) {
               >
                 <div className='flex items-center justify-between gap-2'>
                   <span className='truncate font-medium'>{s.name}</span>
-                  <StatusBadge status={s.status} />
+                  <StatusBadge status={s.status === 'detour' && roadLost(s) ? 'road_lost' : s.status} />
                 </div>
                 <div className='mt-0.5 text-[0.6875rem] text-muted-foreground'>{s.buildings} buildings within {t('exposure_radius_m') ?? '—'} m</div>
               </Row>

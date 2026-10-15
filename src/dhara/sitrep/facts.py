@@ -29,6 +29,10 @@ class Fact:
 
 
 def fmt_num(v: float | int, decimals: int = 0) -> str:
+    # A small positive value must not read as zero: 0.003 km² shows "<0.01", not "0.00".
+    step = 10.0**-decimals
+    if 0 < float(v) < step / 2:
+        return f"<{step:.{decimals}f}"
     if decimals == 0:
         return f"{round(float(v)):,}"
     return f"{float(v):,.{decimals}f}"
@@ -231,6 +235,21 @@ def build(job_dir: Path) -> Facts:
         int(cut["buildings_500m"].sum()) if len(cut) else 0,
         source="settlements.parquet",
     )
+    # Lost vehicle access to a hospital (a road route before, none after), counted separately from
+    # "cut off", which means no route at all, even on foot.
+    if sdf is not None and len(sdf) and "vehicle_access" in sdf:
+        lost = sdf[sdf["vehicle_access"] == "lost"]
+        f.add("settlements_vehicle_lost", len(lost), source="settlements.parquet")
+        f.add(
+            "settlements_vehicle_before",
+            int(sdf["vehicle_access"].isin(["kept", "lost"]).sum()),
+            source="settlements.parquet",
+        )
+        f.add(
+            "buildings_in_vehicle_lost",
+            int(lost["buildings_500m"].sum()) if len(lost) else 0,
+            source="settlements.parquet",
+        )
     if sdf is not None and len(sdf) and "delay_hours_target" in sdf:
         delays = sdf[sdf["delay_hours_target"] > 0]["delay_hours_target"]
         max_d = float(delays.max()) if len(delays) else 0.0
@@ -469,8 +488,8 @@ def _verdict(f: Facts) -> None:
 
     SEVERE    high-confidence flood/debris ≥ 1 km², or ≥ 250 buildings, or ≥ 5 bridges lost
     HIGH      high-confidence flood/debris ≥ 0.1 km², or ≥ 25 buildings, or ≥ 2 bridges lost
-    MODERATE  any community cut off or without hospital access, ≥ 50 buildings, or ≥ 0.25 km²
-              mapped, on any confidence
+    MODERATE  any community cut off, without hospital access or without a road to one,
+              ≥ 50 buildings, or ≥ 0.25 km² mapped, on any confidence
     LOW       otherwise
     """
 
@@ -485,6 +504,7 @@ def _verdict(f: Facts) -> None:
 
     cut_off = int(_val("settlements_cut_off"))
     hosp_cut_off = int(_val("settlements_hospital_cut_off"))
+    road_lost = int(_val("settlements_vehicle_lost"))
     buildings_hit = int(_val("buildings_hit"))
     hazard_km2 = _val("area_debris_km2") + _val("area_flood_km2")
     tier_high = _val("area_tier_high_km2")
@@ -498,7 +518,13 @@ def _verdict(f: Facts) -> None:
         level = "SEVERE"
     elif tier_high >= 0.1 or bld_high >= 25 or br_high >= 2:
         level = "HIGH"
-    elif cut_off > 0 or hosp_cut_off > 0 or buildings_hit >= 50 or hazard_km2 >= 0.25:
+    elif (
+        cut_off > 0
+        or hosp_cut_off > 0
+        or road_lost > 0
+        or buildings_hit >= 50
+        or hazard_km2 >= 0.25
+    ):
         level = "MODERATE"
     else:
         level = "LOW"
@@ -511,7 +537,13 @@ def _verdict(f: Facts) -> None:
             parts.append(plural(br_high, "bridge", "bridges") + " likely lost (high confidence)")
         if cut_off:
             parts.append(plural(cut_off, "community", "communities") + " cut off")
-        headline = " · ".join(parts) or f"{tier_high:.2f} km² of high-confidence flood or debris"
+        if road_lost:
+            parts.append(
+                plural(road_lost, "community", "communities") + " lost their road to a hospital"
+            )
+        headline = (
+            " · ".join(parts) or f"{fmt_num(tier_high, 2)} km² of high-confidence flood or debris"
+        )
         parts_ne = []
         if bld_high:
             parts_ne.append(f"{bld_high:,} भवन उच्च विश्वासका साथ क्षतिग्रस्त")
@@ -519,17 +551,27 @@ def _verdict(f: Facts) -> None:
             parts_ne.append(f"{br_high:,} पुल सम्भवतः बगेका (उच्च विश्वास)")
         if cut_off:
             parts_ne.append(f"{cut_off:,} बस्ती सम्पर्कविहीन")
-        headline_ne = " · ".join(parts_ne) or f"{tier_high:.2f} km² उच्च विश्वासको बाढी वा लेदो"
+        if road_lost:
+            parts_ne.append(f"{road_lost:,} बस्तीको अस्पतालसम्मको सडक टुट्यो")
+        headline_ne = (
+            " · ".join(parts_ne) or f"{fmt_num(tier_high, 2)} km² उच्च विश्वासको बाढी वा लेदो"
+        )
     elif level == "MODERATE":
         headline = (
             "Mapped change is mostly low-confidence: "
             + (plural(cut_off, "community", "communities") + " cut off, " if cut_off else "")
+            + (
+                plural(road_lost, "community", "communities") + " without a road to a hospital, "
+                if road_lost
+                else ""
+            )
             + plural(buildings_hit, "building", "buildings")
             + " touched. Check before acting."
         )
         headline_ne = (
             "नक्साङ्कित परिवर्तन प्रायः कम विश्वासको छ: "
             + (f"{cut_off:,} बस्ती सम्पर्कविहीन, " if cut_off else "")
+            + (f"{road_lost:,} बस्तीको अस्पतालसम्मको सडक टुट्यो, " if road_lost else "")
             + f"{buildings_hit:,} भवन प्रभावित। कदम चाल्नुअघि पुष्टि गर्नुहोस्।"
         )
     else:

@@ -1,11 +1,12 @@
 """D8 hydrology kernels (numba). Arrays are row-major (row 0 = north); CRS-agnostic.
 
 - `priority_flood_eps`: depression filling with a tiny gradient on flats (Barnes et al. 2014), so
-  every non-edge cell has a strictly lower neighbour.
+  every non-edge cell has a strictly lower neighbour. Also returns the order cells left the queue:
+  lowest first, every cell after the neighbour it drains to, so the passes below need no sort.
 - `flow_direction`: steepest descent on the conditioned DEM, encoded as index 0..7 into DR/DC
   (-1 = outlet or no data).
-- `accumulation`: upstream cell count (including the cell itself).
-- `hand`: height above the nearest drainage cell reached by following the flow path.
+- `accumulation`: upstream cell count (including the cell itself), in reverse of that order.
+- `hand`: height above the nearest drainage cell reached by following the flow path, in that order.
 """
 
 import numba
@@ -54,12 +55,17 @@ def _heap_pop(hz, hi, n):
 
 @numba.njit(cache=True)
 def priority_flood_eps(dem, eps):
-    """Fill depressions; flats get a +eps slope away from the outlet. NaN cells act as outlets' edge."""
+    """Fill depressions; flats get a +eps slope away from the outlet. NaN cells act as outlets' edge.
+
+    Returns the filled DEM and the flat indices of the non-NaN cells in the order they were
+    finalised (ascending filled elevation)."""
     H, W = dem.shape
     out = dem.copy()
     closed = np.zeros((H, W), dtype=np.bool_)
     hz = np.empty(H * W, dtype=np.float64)
     hi = np.empty(H * W, dtype=np.int64)
+    order = np.empty(H * W, dtype=np.int64)
+    m = 0
     n = 0
     for r in range(H):
         for c in range(W):
@@ -77,6 +83,8 @@ def priority_flood_eps(dem, eps):
                 n = _heap_push(hz, hi, n, out[r, c], r * W + c)
     while n > 0:
         z, i, n = _heap_pop(hz, hi, n)
+        order[m] = i
+        m += 1
         r, c = i // W, i % W
         for k in range(8):
             rr, cc = r + DR[k], c + DC[k]
@@ -88,7 +96,7 @@ def priority_flood_eps(dem, eps):
                 nz = z + eps
             out[rr, cc] = nz
             n = _heap_push(hz, hi, n, nz, rr * W + cc)
-    return out
+    return out, order[:m]
 
 
 @numba.njit(cache=True)
@@ -112,22 +120,17 @@ def flow_direction(z):
 
 
 @numba.njit(cache=True)
-def _order_desc(z):
-    flat = z.ravel().copy()
-    flat[np.isnan(flat)] = -np.inf
-    return np.argsort(-flat)
-
-
-@numba.njit(cache=True)
-def accumulation(z, fd):
+def accumulation(z, fd, order):
+    """`order`: from `priority_flood_eps` (ascending); walked from the top down."""
     H, W = z.shape
     acc = np.ones((H, W), dtype=np.float64)
-    order = _order_desc(z)
-    for i in order:
+    for r in range(H):
+        for c in range(W):
+            if np.isnan(z[r, c]):
+                acc[r, c] = 0.0
+    for j in range(order.size - 1, -1, -1):
+        i = order[j]
         r, c = i // W, i % W
-        if np.isnan(z[r, c]):
-            acc[r, c] = 0.0
-            continue
         k = fd[r, c]
         if k >= 0:
             acc[r + DR[k], c + DC[k]] += acc[r, c]
@@ -135,16 +138,14 @@ def accumulation(z, fd):
 
 
 @numba.njit(cache=True)
-def hand(z, fd, channels):
-    """HAND on the conditioned DEM. Cells draining off-grid without meeting a channel get NaN."""
+def hand(z, fd, channels, order):
+    """HAND on the conditioned DEM. Cells draining off-grid without meeting a channel get NaN.
+    `order`: from `priority_flood_eps` (ascending: downstream cells first)."""
     H, W = z.shape
     drain = np.full((H, W), np.nan)
-    order = _order_desc(z)
-    for j in range(order.size - 1, -1, -1):  # ascending elevation: downstream cells first
+    for j in range(order.size):
         i = order[j]
         r, c = i // W, i % W
-        if np.isnan(z[r, c]):
-            continue
         if channels[r, c]:
             drain[r, c] = z[r, c]
             continue
@@ -152,3 +153,23 @@ def hand(z, fd, channels):
         if k >= 0:
             drain[r, c] = drain[r + DR[k], c + DC[k]]
     return (z - drain).astype(np.float32)
+
+
+@numba.njit(cache=True)
+def slope_deg(z, res):
+    """Slope in degrees, same as numpy.gradient (central differences inside, one-sided at the
+    edges) followed by arctan of the gradient length, in a single pass."""
+    H, W = z.shape
+    out = np.empty((H, W), dtype=np.float32)
+    k = 180.0 / np.pi
+    for r in range(H):
+        r0 = r - 1 if r > 0 else r
+        r1 = r + 1 if r < H - 1 else r
+        dy = (r1 - r0) * res
+        for c in range(W):
+            c0 = c - 1 if c > 0 else c
+            c1 = c + 1 if c < W - 1 else c
+            gy = (z[r1, c] - z[r0, c]) / dy
+            gx = (z[r, c1] - z[r, c0]) / ((c1 - c0) * res)
+            out[r, c] = np.arctan(np.sqrt(gx * gx + gy * gy)) * k
+    return out

@@ -14,6 +14,8 @@ The scripts in this folder produced every number here. `plot_results.py` draws t
 | Does it get "who is cut off" right? | 127 of 127 settlements match in one valley, 114 of 115 in another |
 | Is our own radar processing as good as a ready-made service? | Yes, same scores |
 | Does the flood model work on mountains it never saw? | Score 0.75 out of 1 |
+| Does it find the bridges experts marked as damaged? | All 5 in Syapru Besi, 20 of 26 in Bidur, 8 of 22 in Phosretar |
+| Does a big area give the same answer as a small one? | Yes, since 16 October (0.88 for both), see section 7 |
 
 ## Words used here
 
@@ -131,6 +133,56 @@ it with the other detectors and the physical rules is what works:
   so radar on steep hillsides is the main source of false alarms. The physical rules address that.
 - **Ideas that did not help,** and are switched off: comparing against several older radar
   images, and tuning radar thresholds on the valley floor only. Neither improved the score.
+
+## 6. Bridges
+
+EMS marks damaged bridges as points. We match each one to the nearest OpenStreetMap bridge Dhara
+assessed (within 50 m; 25 m or 100 m give almost the same counts) and ask whether Dhara marked it
+likely lost or at risk. EMS does not list bridges it saw standing, so only this one direction can
+be checked. `compare_bridges.py` produced these numbers.
+
+| Area | EMS damaged bridges | Dhara flagged | Dhara said standing | No bridge in OpenStreetMap |
+|---|---:|---:|---:|---:|
+| 01 Syapru Besi | 5 | 5 | 0 | 0 |
+| 02 Timure | 1 | 0 | 0 | 1 |
+| 03 Bidur | 26 | 20 | 0 | 6 |
+| **05 Phosretar, held out** | 22 | 8 | 8 | 6 |
+
+Phosretar is the weak spot: half of the bridges Dhara could assess there were called standing.
+These scores were measured after the settings were fixed, and nothing was changed because of them.
+
+## 7. Big areas
+
+A user can draw any area, so the same ground should get the same answer whether it sits in a
+small area or a large one. At first it did not: run as part of the whole Trishuli valley
+(408 km²), the Syapru Besi stretch scored 0.17, against 0.88 when run alone. Two things caused it.
+
+**1. The only clear image was thrown away.** Only one Sentinel-2 image after the flood was usable
+(27 August). Its clouds were patchy: clear over Syapru Besi, Bidur and Phosretar, cloudy over the
+rest of the valley. Dhara skipped any image more than 60 % cloudy over the whole area, so the big
+run fell back on radar alone (which scores 0.38 here). Cloudy pixels are already masked one by
+one, so now an image is usable if at least a quarter of the ground a flood could reach (low ground
+near rivers) is clear. Images are still ranked as before.
+
+**2. Radar images from two processing chains were mixed.** During a server emergency, some cached
+radar images for this area were pointed at Sentinel Hub's processed versions instead of our own.
+Comparing images from two chains makes their small calibration and position differences look like
+change, which raised the noise threshold from about 3.2 dB to 5 dB. Dhara now uses a cached radar
+image only if it wrote that file itself, and processes the image again otherwise.
+
+| Run | Area | Score in the Syapru Besi area |
+|---|---:|---:|
+| Syapru Besi alone | 26 km² | 0.88 |
+| Whole Trishuli valley, before the fixes | 408 km² | 0.17 |
+| Whole Trishuli valley, after the fixes | 408 km² | **0.88** |
+
+After the fixes the big run finds all 5 damaged bridges EMS marked in Syapru Besi, and its
+severity is HIGH, the same as Syapru Besi alone. We also tried measuring the radar noise only on
+low ground, or in 5 km blocks. Neither changed any score once the images were clean, so both were
+dropped.
+
+These changes came after the held-out test. They do not change any image choice on the four
+expert areas: Phosretar still scores 0.85 (0.84 is the number to quote), Syapru Besi 0.88.
 
 ## Why radar finds this flood hard
 

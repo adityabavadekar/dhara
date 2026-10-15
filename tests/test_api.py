@@ -142,3 +142,78 @@ def test_job_elevation_profile(client):
     assert resp.status_code == 200
     assert resp.json()["summary"]["total_distance_km"] == 1.0
     assert len(resp.json()["points"]) == 2
+
+
+def test_job_location_name_and_migration(client, monkeypatch):
+    from dhara.api import app as appmod
+    from dhara.api.app import store
+
+    # No real analysis: the job only needs to exist.
+    monkeypatch.setattr(appmod, "_run_analysis", lambda *a, **k: None)
+
+    # Job created with explicit name
+    r = client.post(
+        "/api/jobs", json={"aoi": SMALL, "event": "2026-08-26", "name": "Custom Valley"}
+    )
+    assert r.status_code == 202
+    jid = r.json()["id"]
+
+    job = client.get(f"/api/jobs/{jid}").json()
+    assert job["location_name"] == "Custom Valley"
+
+    # In job list, location_name is preserved
+    jobs = client.get("/api/jobs").json()
+    match = next(j for j in jobs if j["id"] == jid)
+    assert match["location_name"] == "Custom Valley"
+
+    # Migration test on unmigrated row
+    store()._con.execute("UPDATE jobs SET location_name = NULL WHERE id = ?", [jid])
+    store()._migrate_locations()
+    updated = client.get(f"/api/jobs/{jid}").json()
+    assert updated["location_name"] is not None
+
+
+def test_runs_queue_one_at_a_time_and_identical_requests_reuse(client, monkeypatch):
+    from dhara.api import app as appmod
+
+    # Stub runs never start, so every submitted analysis stays queued.
+    monkeypatch.setattr(appmod, "_run_analysis", lambda *a, **k: None)
+    assert appmod.state["analysis_pool"]._max_workers == 1
+
+    def box(dx: float) -> dict:
+        x0, y0 = 85.33 + dx, 28.14
+        ring = [[x0, y0], [x0 + 0.02, y0], [x0 + 0.02, y0 + 0.02], [x0, y0 + 0.02], [x0, y0]]
+        return {"type": "Polygon", "coordinates": [ring]}
+
+    body = {"aoi": box(0), "event": "2026-08-26", "note": "  first   check  "}
+    first = client.post("/api/jobs", json=body).json()
+    # Same area, time and options: the existing run is returned instead of a second one.
+    again = client.post("/api/jobs", json={**body, "note": "other"}).json()
+    assert again == {"id": first["id"], "reused": True}
+    assert client.get(f"/api/jobs/{first['id']}").json()["request"]["note"] == "first check"
+
+    ids = [first["id"]]
+    for i in range(1, appmod.MAX_PENDING["analysis"]):
+        ids.append(client.post("/api/jobs", json={**body, "aoi": box(0.05 * i)}).json()["id"])
+    r = client.post("/api/jobs", json={**body, "aoi": box(0.5)})
+    assert r.status_code == 429 and "one at a time" in r.json()["detail"]
+
+    listed = {j["id"]: j for j in client.get("/api/jobs").json()}
+    assert [listed[i]["queue_ahead"] for i in ids] == list(range(len(ids)))
+    assert client.post("/api/jobs", json={**body, "note": "x" * 201}).status_code == 422
+
+
+def test_job_list_carries_brief_facts(client, monkeypatch):
+    from dhara.api import app as appmod
+    from dhara.api.app import store
+
+    monkeypatch.setattr(appmod, "_run_analysis", lambda *a, **k: None)
+    jid = client.post("/api/jobs", json={"aoi": SMALL, "event": "2026-08-26"}).json()["id"]
+    fact = {"value": 3, "unit": "", "source": "t"}
+    store().put_facts(
+        jid, {"buildings_hit": {**fact, "text": "3"}, "job_id": {**fact, "text": jid}}
+    )
+    store().update(jid, status="done")
+    j = next(j for j in client.get("/api/jobs").json() if j["id"] == jid)
+    assert j["brief"] == {"buildings_hit": "3"}
+    assert j["queue_ahead"] is None

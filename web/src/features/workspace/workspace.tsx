@@ -1,8 +1,10 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, Bot, Check, FileText, Loader2, Plus, RotateCcw } from 'lucide-react'
 import { useApp, type View } from '@/context/app-state'
 import { bounds, jobAoiRing, jobLabel, useJobData } from '@/lib/job'
-import type { Polygon } from '@/lib/api'
+import { usePrefetchWhenIdle } from '@/lib/prefetch'
+import { api, type Polygon } from '@/lib/api'
 import { ReportDialog } from '@/features/report/report-dialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -39,6 +41,7 @@ const TABS: { id: View; label: string; count?: (d: ReturnType<typeof useJobData>
 export function Workspace() {
   const app = useApp()
   const d = useJobData(app.jobId)
+  usePrefetchWhenIdle(app.jobId, d.facts.loaded && !d.loading)
   const job = d.job.data
 
   // Frame the analysed area whenever a different job is opened.
@@ -63,8 +66,9 @@ export function Workspace() {
 
   return (
     <div className='flex min-h-0 flex-1 flex-col'>
-      <div className='border-b px-3 pt-3 pb-0'>
-        <div className='flex items-start justify-between gap-2'>
+      <div className='border-b px-3 pt-1 pb-0 sm:pt-3'>
+        {/* On phones the event picker in the top bar already shows the date, area and place. */}
+        <div className='hidden items-start justify-between gap-2 sm:flex'>
           <div className='min-w-0'>
             <div className='text-[0.6875rem] font-medium text-muted-foreground'>Flood event</div>
             <div className='truncate text-sm font-semibold tracking-tight'>{label.title}</div>
@@ -72,7 +76,8 @@ export function Workspace() {
           </div>
         </div>
         {job.status === 'done' && (
-          <div className='mt-2.5 grid grid-cols-2 gap-1.5'>
+          // On phones the top bar already has Report and Assistant, so this row is hidden there.
+          <div className='mt-2.5 hidden grid-cols-2 gap-1.5 sm:grid'>
             <ReportDialog
               jobId={job.id}
               trigger={
@@ -92,7 +97,7 @@ export function Workspace() {
           </div>
         )}
         {job.status === 'done' && (
-          <nav className='-mb-px mt-2.5 flex' aria-label='Views'>
+          <nav className='-mb-px mt-0 flex sm:mt-2.5' aria-label='Views'>
             {TABS.map((t) => {
               const c = t.count?.(d)
               return (
@@ -115,7 +120,7 @@ export function Workspace() {
         {job.status !== 'done' && <div className='h-3' />}
       </div>
 
-      {running && <Running stage={job.stage} progress={job.progress} />}
+      {running && <Running stage={job.stage} progress={job.progress} startedUtc={job.started_utc ?? job.created_utc} queueAhead={job.status === 'queued' ? (job.queue_ahead ?? 0) : null} />}
       {job.status === 'failed' && (
         <div className='space-y-3 p-3'>
           <Alert variant='destructive'>
@@ -160,17 +165,66 @@ export function Workspace() {
   )
 }
 
-function Running({ stage, progress }: { stage: string; progress: number }) {
+const fmtDuration = (s: number) => (s < 60 ? `${Math.max(1, Math.round(s))} s` : `${Math.floor(s / 60)} min ${String(Math.round(s % 60)).padStart(2, '0')} s`)
+
+/** Typical run length on this server: the median duration of its finished analyses (null when
+ *  there are none yet). Used as the starting estimate until the run's own pace takes over. */
+function useTypicalRunS(): number | null {
+  const jobs = useQuery({ queryKey: ['jobs'], queryFn: api.jobs })
+  return useMemo(() => {
+    const d = (jobs.data ?? [])
+      .filter((j) => j.kind === 'analysis' && j.status === 'done')
+      .map((j) => (Date.parse(j.updated_utc) - Date.parse(j.started_utc ?? j.created_utc)) / 1000)
+      .filter((v) => Number.isFinite(v) && v > 0)
+      .sort((a, b) => a - b)
+    return d.length ? d[Math.floor(d.length / 2)] : null
+  }, [jobs.data])
+}
+
+/**
+ * Time left: starts from this server's typical run length, then blends into the run's own
+ * measured pace as stages complete (fully measured by 35%). Without any finished run to learn
+ * from, it waits for the measured pace instead of guessing.
+ */
+function useEta(startedUtc: string, progress: number) {
+  const typical = useTypicalRunS()
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(t)
+  }, [])
+  const elapsed = Math.max(0, (now - Date.parse(startedUtc)) / 1000)
+  if (progress >= 1) return { elapsed, left: null as number | null }
+  const measured = progress > 0.02 ? (elapsed * (1 - progress)) / progress : null
+  const prior = typical != null ? Math.max(10, typical - elapsed) : null
+  const alpha = Math.min(1, Math.max(0, (progress - 0.05) / 0.3))
+  const blended = prior == null ? (progress >= 0.25 ? measured : null) : measured == null ? prior : (1 - alpha) * prior + alpha * measured
+  if (blended == null) return { elapsed, left: null }
+  return { elapsed, left: Math.max(5, Math.ceil(blended / 5) * 5) }
+}
+
+function Running({ stage, progress, startedUtc, queueAhead }: { stage: string; progress: number; startedUtc: string; queueAhead: number | null }) {
   const idx = STAGES.findIndex(([s]) => s === stage)
+  const { elapsed, left } = useEta(startedUtc, progress)
   return (
     <div className='space-y-3 p-3'>
       <div className='space-y-1.5'>
         <div className='flex items-center justify-between text-xs'>
-          <span className='font-medium'>Analysing</span>
+          <span className='font-medium'>{queueAhead != null ? 'Waiting to start' : 'Analysing'}</span>
           <span className='tabular-nums text-muted-foreground'>{Math.round(progress * 100)}%</span>
         </div>
         <Progress value={progress * 100} />
+        <div className={cn('flex items-center justify-between text-[0.6875rem] text-muted-foreground tabular-nums', queueAhead != null && 'hidden')}>
+          <span>Elapsed {fmtDuration(elapsed)}</span>
+          <span className={left != null ? 'font-medium text-foreground' : ''}>{left != null ? `About ${fmtDuration(left)} left` : 'Estimating time left…'}</span>
+        </div>
       </div>
+      {queueAhead != null && (
+        <p className='rounded-md bg-muted/50 px-2.5 py-2 text-[0.6875rem] text-muted-foreground'>
+          Analyses run one at a time on this server.{' '}
+          {queueAhead > 0 ? `${queueAhead} ${queueAhead === 1 ? 'run is' : 'runs are'} ahead of this one.` : 'This one starts next.'}
+        </p>
+      )}
       <ol className='space-y-1'>
         {STAGES.map(([s, label], i) => {
           const state = idx < 0 ? 'todo' : i < idx ? 'done' : i === idx ? 'now' : 'todo'

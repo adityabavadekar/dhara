@@ -589,16 +589,52 @@ def render(
     return page, report
 
 
-def write(job_dir: Path) -> dict:
-    """Render, verify and write sitrep_<lang>.html (+ .pdf when WeasyPrint is available)."""
+# Bump when the report map drawing changes, so cached maps are redrawn.
+MAPS_VERSION = 6
+
+
+def maps_key(job_dir: Path, ids: dict) -> str:
+    """Rendering the report maps takes most of a minute, so they are cached per job and redrawn
+    only when an input they are drawn from changes (or a flow path is traced in the area)."""
+    inputs = [
+        job_dir / n
+        for n in ("classes.tif", "layers.json", "settlements.parquet", "web/change.geojson")
+    ]
+    return json.dumps(
+        [MAPS_VERSION]
+        + [[p.name, p.stat().st_mtime_ns] for p in inputs if p.exists()]
+        + [ids.get("flowpaths", [])]
+    )
+
+
+def cached_maps(job_dir: Path, f: Facts | None, ids: dict) -> dict:
+    """The report maps of a job, from <job>/sitrep_maps.json when still current, else drawn and
+    stored there. The pipeline and the API share this cache, so maps are drawn once per job."""
+    key = maps_key(job_dir, ids)
+    cache = job_dir / "sitrep_maps.json"
+    if cache.exists():
+        cached = json.loads(cache.read_text())
+        if cached.get("key") == key:
+            return cached["maps"]
+    m = _maps(job_dir, f if f is not None else build(job_dir))
+    cache.write_text(json.dumps({"key": key, "maps": m}))
+    return m
+
+
+def write(job_dir: Path, pdf: bool = False) -> dict:
+    """Render, verify and write sitrep_<lang>.html. `pdf` also writes the long-form report as
+    sitrep_<lang>.pdf with WeasyPrint (about a minute); the one-page report PDF is printed
+    separately by the API."""
     out: dict = {}
     f = build(job_dir)
     (job_dir / "facts.json").write_text(json.dumps(f.to_json(), indent=1, default=str))
-    m = _maps(job_dir, f)
+    m = cached_maps(job_dir, f, f.ids)
     for lang in ("en", "ne"):
         page, rep = render(job_dir, lang, f, m)
         (job_dir / f"sitrep_{lang}.html").write_text(page)
-        out[lang] = {"html": f"sitrep_{lang}.html", "verification": rep}
+        out[lang] = {"html": f"sitrep_{lang}.html", "verification": rep, "pdf": None}
+        if not pdf:
+            continue
         try:
             weasyprint = importlib.import_module("weasyprint")
             buf = io.BytesIO()

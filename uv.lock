@@ -358,9 +358,11 @@ dependencies = [
     { name = "geopandas" },
     { name = "httpx" },
     { name = "jinja2" },
+    { name = "matplotlib" },
     { name = "numba" },
     { name = "numpy" },
     { name = "onnxruntime" },
+    { name = "pillow" },
     { name = "pyarrow" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -378,7 +380,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "httpx" },
-    { name = "matplotlib" },
     { name = "pytest" },
     { name = "ruff" },
     { name = "ty" },
@@ -392,9 +393,11 @@ requires-dist = [
     { name = "geopandas", specifier = "==1.2.0" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "jinja2", specifier = ">=3.1.6" },
+    { name = "matplotlib", specifier = ">=3.11.2" },
     { name = "numba", specifier = ">=0.68.0" },
     { name = "numpy", specifier = "==2.5.3" },
     { name = "onnxruntime", specifier = ">=1.31.0" },
+    { name = "pillow", specifier = ">=12.3.0" },
     { name = "pyarrow", specifier = "==26.0.0" },
     { name = "pydantic", specifier = "==2.14.0" },
     { name = "pydantic-settings", specifier = "==2.15.0" },
@@ -412,7 +415,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "matplotlib", specifier = ">=3.11.2" },
     { name = "pytest", specifier = "==9.1.1" },
     { name = "ruff", specifier = "==0.17.0" },
     { name = "ty", specifier = "==0.0.86" },

@@ -197,6 +197,38 @@ def _snap(net: Network, pts: np.ndarray, max_m: float) -> np.ndarray:
     return np.where(d <= max_m, i, -1)
 
 
+# OSM highway values a vehicle can use, including jeep tracks (the usual road in the hills).
+VEHICLE_HIGHWAYS = frozenset(
+    {
+        "motorway",
+        "trunk",
+        "primary",
+        "secondary",
+        "tertiary",
+        "unclassified",
+        "residential",
+        "service",
+        "living_street",
+        "road",
+        "track",
+    }
+)
+
+
+def vehicle_edges(net: Network) -> np.ndarray:
+    """True for edges on ways a vehicle can drive (VEHICLE_HIGHWAYS and their *_link ramps)."""
+    hw = np.array([str(h).removesuffix("_link") for h in net.highway], object)
+    return np.isin(hw, list(VEHICLE_HIGHWAYS)) if len(hw) else np.zeros(0, bool)
+
+
+def _snap_to(net: Network, pts: np.ndarray, nodes: np.ndarray, max_m: float) -> np.ndarray:
+    """Nearest node among `nodes` per point (analysis CRS, metres), or -1 beyond max_m."""
+    if len(nodes) == 0 or len(pts) == 0:
+        return np.full(len(pts), -1)
+    d, i = KDTree(net.nodes[nodes]).query(pts)
+    return np.where(d <= max_m, nodes[i], -1)
+
+
 def exit_nodes(
     net: Network, bounds: tuple[float, float, float, float], margin_m: float
 ) -> np.ndarray:
@@ -363,6 +395,25 @@ def analyse(
     d_pre_a, pred_pre_a, _ = dist(pre_keep, any_targets)
     d_post_a, _, _ = dist(post_keep, any_targets)
 
+    # Vehicle access to a hospital: the same question on drivable ways only. Settlements and
+    # hospitals are snapped to the nearest drivable node, since the nearest node may be a path.
+    drive = vehicle_edges(net)
+    drive_nodes = np.unique(np.r_[net.u[drive], net.v[drive]]).astype(int)
+    s_vnode = _snap_to(net, sp, drive_nodes, snap_m)
+    hosp_points = _points(ht[ht["kind"] == "hospital"], crs)
+    hosp_vnodes = _snap_to(net, hosp_points, drive_nodes, snap_m)
+    hosp_vnodes = np.unique(hosp_vnodes[hosp_vnodes >= 0])
+    d_pre_hv, _, _ = dist(pre_keep & drive, hosp_vnodes)
+    d_post_hv, _, _ = dist(post_keep & drive, hosp_vnodes)
+
+    def vehicle_access(i: int) -> str | None:
+        n = s_vnode[i]
+        if n < 0 or len(hosp_vnodes) == 0:
+            return None  # no drivable way near the settlement, or no hospital on one
+        if not np.isfinite(d_pre_hv[n]):
+            return "none_before"
+        return "kept" if np.isfinite(d_post_hv[n]) else "lost"
+
     t_pre_h = duration(pre_keep, hosp_nodes)
     t_post_h = duration(post_keep, hosp_nodes)
     t_pre_a = duration(pre_keep, any_targets)
@@ -455,6 +506,7 @@ def analyse(
                 "place": pl["place"].iat[i],
                 "osm_id": pl["osm_id"].iat[i],
                 "status": st,
+                "vehicle_access": vehicle_access(i),
                 "buildings_500m": int(counts[i]),
                 "hospital_name": h_name,
                 "hospital_amenity": h_amenity,

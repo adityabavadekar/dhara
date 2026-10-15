@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { ChangeSummary } from '@/lib/api'
-import { useFacts } from '@/lib/job'
+import { fixed, useFacts } from '@/lib/job'
 
 export type SweepOpt = 'outlines' | 'width' | 'water' | 'buildings' | 'settlements' | 'hospitals' | 'roads' | 'flowpath'
 export type SweepSide = 'before' | 'after'
@@ -43,7 +43,7 @@ export function sweepLayers(opts: Record<SweepOpt, boolean>, side: SweepSide): S
   return keep
 }
 
-const km2 = (v: number) => `${v.toFixed(2)} km²`
+const km2 = (v: number) => `${fixed(v, 2)} km²`
 const rel = (b: number, a: number) => (b > 0 ? `${a >= b ? '+' : ''}${Math.round(((a - b) / b) * 100)}%` : null)
 
 function Diff({ label, note, before, after, delta }: { label: string; note?: string; before: string; after: string; delta?: string | null }) {
@@ -76,7 +76,8 @@ export function SweepPanel({
   setOpts: (o: Record<SweepOpt, boolean>) => void
   hasFlow: boolean
 }) {
-  const [open, setOpen] = useState(true)
+  // Collapsed on phones, where the open panel would cover the divider.
+  const [open, setOpen] = useState(() => typeof window === 'undefined' || window.matchMedia('(min-width: 640px)').matches)
   const { t } = useFacts(jobId, !!jobId)
   const c = change
   const avail = SWEEP_OPTS.filter((o) => (o.id === 'flowpath' ? hasFlow : o.side ? !!c : true))
@@ -151,7 +152,7 @@ export function SweepPanel({
                   key={o.id}
                   type='button'
                   onClick={() => setOpts({ ...opts, [o.id]: !opts[o.id] })}
-                  className={`flex items-center gap-1 rounded border px-1.5 py-0.5 ${opts[o.id] ? 'border-white bg-white text-neutral-900' : 'border-white/25 text-white/80 hover:border-white/50'}`}
+                  className={`flex items-center gap-1 rounded border px-1.5 py-0.5 ${opts[o.id] ? 'border-white bg-white text-neutral-900' : 'border-white/25 text-white/80 hover:bg-white/10'}`}
                 >
                   <span className='flex'>
                     {o.swatch.map((s) => (

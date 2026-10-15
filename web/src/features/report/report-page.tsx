@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, ExternalLink } from 'lucide-react'
 import { useApp } from '@/context/app-state'
-import { api, type SitrepData } from '@/lib/api'
+import { api, apiUrl, type SitrepData } from '@/lib/api'
 import { jobLabel } from '@/lib/job'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -19,11 +19,18 @@ type Lang = 'en' | 'ne'
 /** File name for a saved report, e.g. Dhara_SitRep_2026-08-26_पाल्ते_68d2b5869583 (`_NE` for Nepali).
  *  Same rule as `dhara.sitrep.pdf.report_filename` on the server. */
 /** Absolute link for the report's footer. A PDF printed on the server is opened elsewhere, so the
- *  server passes the address the request came in on as ?origin=; in the browser links stay relative. */
-function publicLink(path: string): string {
-  const o = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('origin') : null
-  return o && /^https?:\/\/[^/?#]+$/.test(o) ? `${o}${path}` : path
+ *  server passes its public address as ?origin= and the dashboard's as ?web= (when hosted apart).
+ *  In the browser, API links go to the API and the dashboard link stays relative. */
+function publicLink(path: string, to: 'api' | 'web' = 'api'): string {
+  const q = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+  const ok = (v: string | null | undefined) => (v && /^https?:\/\/[^/?#]+$/.test(v) ? v : null)
+  const origin = ok(q?.get('origin'))
+  if (!origin) return to === 'api' ? apiUrl(path) : path
+  return `${to === 'web' ? (ok(q?.get('web')) ?? origin) : origin}${path}`
 }
+
+/** Report map image: the server sends data URLs (WebP); older responses sent bare PNG base64. */
+const mapSrc = (v: string) => (v.startsWith('data:') ? v : `data:image/png;base64,${v}`)
 
 function reportFileName(facts: Record<string, string>, jobId: string, lang: Lang): string {
   const day = (facts.event ?? '').slice(0, 10)
@@ -652,7 +659,7 @@ function Report({ data, lang }: { data: SitrepData; lang: Lang }) {
             </h2>
             {maps.overview && (
               <img
-                src={`data:image/png;base64,${maps.overview}`}
+                src={mapSrc(maps.overview)}
                 alt={en ? 'Map of the analysed area showing mapped debris and new water, impassable roads, settlements by road access and hospitals.' : 'विश्लेषित क्षेत्रको नक्सा'}
                 className='sr-map'
               />
@@ -738,7 +745,7 @@ function Report({ data, lang }: { data: SitrepData; lang: Lang }) {
             </h2>
             {maps.satellite_pair ? (
               <img
-                src={`data:image/png;base64,${maps.satellite_pair}`}
+                src={mapSrc(maps.satellite_pair)}
                 alt={en ? 'Before and after satellite images of the analysed area, side by side.' : 'पहिले र पछिका उपग्रह तस्बिर'}
                 className='sr-sat'
               />
@@ -892,7 +899,7 @@ function Report({ data, lang }: { data: SitrepData; lang: Lang }) {
               </a>
             </p>
             <p>
-              <a className='sr-link' href={publicLink(`/?job=${data.job_id}`)} target='_blank' rel='noreferrer'>
+              <a className='sr-link' href={publicLink(`/?job=${data.job_id}`, 'web')} target='_blank' rel='noreferrer'>
                 {en ? 'Interactive map dashboard' : 'अन्तरक्रियात्मक नक्सा'}
               </a>
             </p>

@@ -5,7 +5,9 @@ Caching: raw inputs (S1 passes, S2 scenes, DEM/terrain, OSM layers) are cached p
 data/cache/<aoi_hash>/, so a re-run on the same AOI only recomputes the analysis.
 """
 
+import hashlib
 import json
+import logging
 import threading
 import time
 import uuid
@@ -45,6 +47,8 @@ from dhara.terrain import hydro
 from dhara.timeutil import EventTime, iso_utc
 
 RES_M = 10.0
+log = logging.getLogger(__name__)
+
 TERRAIN_BUFFER_M = 10_000.0
 # Road network and targets are analysed this far beyond the AOI so routes to hospitals and towns
 # outside the AOI exist; hazard is only known inside the AOI.
@@ -122,16 +126,30 @@ def _cached_pass(
     pass is taken from Sentinel Hub instead and the sidecar records why (reported in provenance)."""
     suffix = "_grd" if source == "grd" else ""
     path = cache / f"s1_{p.key}_{radiometry}{'_geom' if geom else ''}{suffix}.tif"
-    if path.exists():
+    if _usable_pass(path):
         return _read(path)
     # One pass at a time per cache: the other radiometry of the same pass waits, then reads the
     # file this run writes instead of processing the pass again.
     with _pass_locks_guard:
         lock = _pass_locks.setdefault((str(cache), p.key, source), threading.Lock())
     with lock:
-        if path.exists():
+        if _usable_pass(path):
             return _read(path)
         return _process_and_cache(cache, p, grid, radiometry, geom, source, path)
+
+
+def _usable_pass(path: Path) -> bool:
+    """A cached pass is used only if this pipeline wrote it: a regular file with its sidecar.
+    A link or a sidecar-less file may hold another processing chain's output, and comparing
+    passes from two chains turns their calibration and geolocation differences into fake
+    change. Such a file is removed so the pass is processed again."""
+    if not (path.exists() or path.is_symlink()):
+        return False
+    if path.is_file() and not path.is_symlink() and path.with_suffix(".json").exists():
+        return True
+    log.warning("reprocessing %s: not written by this pipeline (link or no sidecar)", path.name)
+    path.unlink(missing_ok=True)
+    return False
 
 
 _pass_locks: dict[tuple, threading.Lock] = {}
@@ -148,7 +166,7 @@ def _process_and_cache(cache, p, grid, radiometry, geom, source, path) -> np.nda
             for rad, a4 in both.items():
                 for g4, a in ((True, a4), (False, a4[:2])):
                     pth = cache / f"s1_{p.key}_{rad}{'_geom' if g4 else ''}_grd.tif"
-                    if pth != path and not pth.exists():
+                    if pth != path and not _usable_pass(pth):
                         write_cog(str(pth), a, grid, nodata=float("nan"))
                         pth.with_suffix(".json").write_text(
                             json.dumps(note | meta | {"radiometry": rad}, default=str)
@@ -373,30 +391,66 @@ def _ml_member(tracks, cache, grid, in_aoi, prov, source: S1Source = "grd") -> F
         return F.Evidence("ml_unet_kurosiwo", "flood", avg_logit(maps), 1.5, "s1")
 
 
-def select_s2(spec: JobSpec, cache: Path, grid: Grid) -> s2.S2Pair:
-    """Choose the clearest S2 pair (AOI cloud fraction) and download it into the cache."""
+# Fewest 60 m pixels of reachable ground to judge cloud on (about 1.8 km²); below this the whole
+# AOI is used.
+MIN_CLOUD_REACH_PX = 500
+
+
+def s2_cloud_masks(spec: JobSpec, cache: Path, grid: Grid) -> list[tuple[s2.S2Scene, np.ndarray]]:
+    """Candidate S2 days around the event with their 60 m cloud masks (on the AOI's snapped
+    60 m grid in local UTM). Masks are cached per AOI, so re-runs spend no quota."""
     cands = s2.candidate_days(spec.aoi, spec.event)
     ev_day = spec.event.date() if isinstance(spec.event, datetime) else spec.event
     cands = [c for c in cands if (c.day - ev_day).days <= spec.s2_max_post_days]
     g60 = Grid.snapped(grid.crs, grid.bounds, 60.0)
-    in60 = aoi_mask(spec.aoi, g60)
-    # Cloud fractions are cached per AOI (keyed by day and scene ids), so re-runs spend no quota.
-    known_path = cache / "s2_cloud.json"
-    known = json.loads(known_path.read_text()) if known_path.exists() else {}
-    key = lambda c: f"{c.day.isoformat()}|{','.join(sorted(c.scene_ids))}"  # noqa: E731
-    todo = [c for c in cands if key(c) not in known]
+    d = cache / "s2_cloud60"
+    d.mkdir(parents=True, exist_ok=True)
+
+    def mask(c: s2.S2Scene) -> np.ndarray:
+        name = hashlib.sha256(f"{c.day}|{','.join(sorted(c.scene_ids))}".encode()).hexdigest()[:16]
+        p = d / f"{c.day.isoformat()}_{name}.npy"
+        if p.exists():
+            return np.load(p)
+        m = s2.cloud_mask(c, g60)
+        np.save(p, m)
+        return m
+
     with ThreadPoolExecutor(max_workers=6) as pool:
-        fr = list(pool.map(lambda c: s2.aoi_cloud_fraction(c, g60, in60), todo))
-    for c, f in zip(todo, fr, strict=True):
-        known[key(c)] = round(f, 4)
-    if todo:
-        known_path.write_text(json.dumps(known, indent=1))
-    for c in cands:
-        c.aoi_cloud_fraction = known[key(c)]
-    pair = s2.choose_pair(cands, spec.event)
-    for sc in (pair.pre, pair.post):
-        if sc is not None:
-            _cached_s2(cache, sc, grid)
+        masks = list(pool.map(mask, cands))
+    return list(zip(cands, masks, strict=True))
+
+
+def select_s2(
+    spec: JobSpec,
+    cache: Path,
+    grid: Grid,
+    cands: list[tuple[s2.S2Scene, np.ndarray]],
+    reach: np.ndarray | None,
+    st: dict,
+) -> s2.S2Pair:
+    """Choose the clearest S2 pair and download it into the cache. grid: the job's 10 m UTM grid;
+    reach: ground a flood or debris can reach, on that grid.
+
+    Scenes are ranked by cloud over the whole AOI, as before, but whether a scene is usable at
+    all is judged on reachable ground (see sentinel2.choose_pair): over a large mountain area,
+    cloud on the ridges would otherwise reject the only image whose valleys are partly clear.
+    """
+    g60 = Grid.snapped(grid.crs, grid.bounds, 60.0)
+    in60 = aoi_mask(spec.aoi, g60)
+    region = None
+    if reach is not None:
+        r60 = hydro.resample_to(reach.astype(np.float32), grid, g60) >= 0.5
+        if int((in60 & r60).sum()) >= MIN_CLOUD_REACH_PX:
+            region = in60 & r60
+    st["s2_usable_judged_on"] = "reachable ground" if region is not None else "whole AOI"
+    for c, m in cands:
+        c.aoi_cloud_fraction = round(float(m[in60].mean()), 4) if in60.any() else 1.0
+        if region is not None:
+            c.reach_cloud_fraction = round(float(m[region].mean()), 4)
+    pair = s2.choose_pair([c for c, _ in cands], spec.event)
+    scenes = [sc for sc in (pair.pre, pair.post) if sc is not None]
+    with ThreadPoolExecutor(max_workers=2) as pool:  # before and after are independent
+        list(pool.map(lambda sc: _cached_s2(cache, sc, grid), scenes))
     return pair
 
 
@@ -460,7 +514,11 @@ def _fetch_inputs(spec, cache, grid, tracks, net_bbox, snap, st) -> dict:
             ly: pool.submit(timed, f"osm:{ly}", cached_osm, cache, ly, net_bbox, snap, "net")
             for ly in layers
         }
-        f_s2 = pool.submit(timed, "s2", select_s2, spec, cache, grid) if spec.use_s2 else None
+        f_s2 = (
+            pool.submit(timed, "s2_clouds", s2_cloud_masks, spec, cache, grid)
+            if spec.use_s2
+            else None
+        )
         for f in f_s1:
             f.result()
         out: dict = {"terrain": f_ter.result(), "osm": {ly: f.result() for ly, f in f_osm.items()}}
@@ -504,7 +562,7 @@ def _run(spec: JobSpec, cache: Path, job_dir: Path, prov: Provenance, progress: 
         if any(k in f.name for k in keys) and (("_grd" in f.name) == (spec.s1_source == "grd"))
     ]
 
-    progress("terrain", 0.4)
+    progress("terrain", 0.15)
     with prov.stage("terrain") as st:
         terr, dem_meta = fetched["terrain"]
         hand = hydro.resample_to(terr.hand, terr.grid, grid)
@@ -537,9 +595,16 @@ def _run(spec: JobSpec, cache: Path, job_dir: Path, prov: Provenance, progress: 
 
     progress("sentinel2", 0.5)
     s2_used = None
-    if spec.use_s2 and isinstance(fetched.get("s2"), s2.S2Pair):
+    if spec.use_s2 and isinstance(fetched.get("s2"), list):
         try:
-            ev2, water_pre, s2_used = _s2_member(fetched["s2"], cache, grid, in_aoi, prov)
+            with prov.stage("s2_selection") as st:
+                reach = np.nan_to_num(hand, nan=np.inf) <= DetectorParams().debris_max_hand_m
+                fetched["s2"] = select_s2(spec, cache, grid, fetched["s2"], reach, st)
+        except Exception as e:  # optical is optional
+            fetched["s2"] = f"{type(e).__name__}: {e}"
+    if spec.use_s2 and isinstance(pair := fetched.get("s2"), s2.S2Pair):
+        try:
+            ev2, water_pre, s2_used = _s2_member(pair, cache, grid, in_aoi, prov)
             evidence += ev2
             if water_pre is not None:
                 perm_water |= water_pre

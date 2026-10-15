@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { pinyin } from 'pinyin-pro'
+import { hasHan, pinyinNow, usePinyinReady } from '@/lib/pinyin'
 import Sanscript from '@indic-transliteration/sanscript'
 import { ArrowLeft, ArrowRight, Bot, Copy, MapPin, Waves, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -37,12 +37,11 @@ export function SelectionCard() {
   const [lon, lat] = s.lngLat
   const p = withRoute ?? s.props
   const settlementName = s.kind === 'settlement' ? parseSettlement(p, s.lngLat).name : ''
-  const pinyinName = settlementName && /\p{Script=Han}/u.test(settlementName)
-    ? pinyin(settlementName, { toneType: 'symbol' })
-    : ''
-  const devanagariName = settlementName && /\p{Script=Devanagari}/u.test(settlementName)
-    ? Sanscript.t(settlementName, 'devanagari', 'iast').replace(/~/g, '\u0303')
-    : ''
+  const han = !!settlementName && hasHan(settlementName)
+  const pinyinReady = usePinyinReady(han)
+  const py = han && pinyinReady ? pinyinNow() : null
+  const pinyinName = py ? py(settlementName, { toneType: 'symbol' }) : ''
+  const devanagariName = settlementName && /\p{Script=Devanagari}/u.test(settlementName) ? Sanscript.t(settlementName, 'devanagari', 'iast').replace(/~/g, '\u0303') : ''
 
   const traceFrom = () => {
     app.setFlowPoint([+lon.toFixed(5), +lat.toFixed(5)])
@@ -71,8 +70,7 @@ export function SelectionCard() {
         <Line k='Flat open area' v={`${num(p.area_m2)} m²`} />
         <Line k='Ground elevation' v={`${num(p.elevation_m)} m`} />
         <p className='mt-1.5 text-muted-foreground'>
-          Gentle, dry ground outside mapped flood and debris, from a 30 m elevation model. Trees, wires, buildings and soft
-          ground are not checked: confirm on site before use.
+          Gentle, dry ground outside mapped flood and debris, from a 30 m elevation model. Trees, wires, buildings and soft ground are not checked: confirm on site before use.
         </p>
       </>
     )
@@ -88,8 +86,7 @@ export function SelectionCard() {
       hospital_cut_off: 'Roads still lead out, but after the flood none of them reaches a hospital.',
       detour: 'Still connected by road, but only by a longer route than before the flood.',
       connected: 'Its usual road route to the hospital still works after the flood.',
-      no_baseline_route:
-        'The pre-flood map shows no road from here to a town or hospital, so road access cannot be judged. It is probably reached by unmapped foot trails.',
+      no_baseline_route: 'The pre-flood map shows no road from here to a town or hospital, so road access cannot be judged. It is probably reached by unmapped foot trails.',
       not_on_network: 'No mapped road comes near this place, so road access cannot be judged.',
     }
     body = (
@@ -109,10 +106,7 @@ export function SelectionCard() {
                 // of this settlement's actual road route, not the first with the same name.
                 const end = route[route.length - 1]
                 const targetHosp = end
-                  ? d.hospitals.reduce<(typeof d.hospitals)[number] | undefined>(
-                      (best, h) => (!best || distanceKm(h.at, end) < distanceKm(best.at, end) ? h : best),
-                      undefined
-                    )
+                  ? d.hospitals.reduce<(typeof d.hospitals)[number] | undefined>((best, h) => (!best || distanceKm(h.at, end) < distanceKm(best.at, end) ? h : best), undefined)
                   : d.hospitals.find((h) => h.name === x.hospital)
                 app.select({
                   kind: 'hospital',
@@ -129,24 +123,24 @@ export function SelectionCard() {
           </div>
         )}
         {x.pathBefore.length > 0 && (
-        <div className='my-1.5 grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border'>
-          <div className='bg-card p-2'>
-            <div className='text-[0.625rem] text-muted-foreground'>Before</div>
-            <div className='font-medium tabular-nums'>{fmtKm(x.kmBefore)}</div>
-            <div className='text-muted-foreground tabular-nums'>{fmtHours(x.hoursBefore)}</div>
+          <div className='my-1.5 grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border'>
+            <div className='bg-card p-2'>
+              <div className='text-[0.625rem] text-muted-foreground'>Before</div>
+              <div className='font-medium tabular-nums'>{fmtKm(x.kmBefore)}</div>
+              <div className='text-muted-foreground tabular-nums'>{fmtHours(x.hoursBefore)}</div>
+            </div>
+            <div className='bg-card p-2'>
+              <div className='text-[0.625rem] text-muted-foreground'>After</div>
+              {broken ? (
+                <div className='font-medium text-red-700 dark:text-red-400'>No road route</div>
+              ) : (
+                <>
+                  <div className='font-medium tabular-nums'>{fmtKm(x.kmAfter)}</div>
+                  <div className='text-muted-foreground tabular-nums'>{fmtHours(x.hoursAfter)}</div>
+                </>
+              )}
+            </div>
           </div>
-          <div className='bg-card p-2'>
-            <div className='text-[0.625rem] text-muted-foreground'>After</div>
-            {broken ? (
-              <div className='font-medium text-red-700 dark:text-red-400'>No road route</div>
-            ) : (
-              <>
-                <div className='font-medium tabular-nums'>{fmtKm(x.kmAfter)}</div>
-                <div className='text-muted-foreground tabular-nums'>{fmtHours(x.hoursAfter)}</div>
-              </>
-            )}
-          </div>
-        </div>
         )}
         {x.breaks.length > 0 && <p className='text-muted-foreground'>Red marks on the map show where the pre-event route crosses flood or debris.</p>}
         {s.originLngLat && (
@@ -188,8 +182,8 @@ export function SelectionCard() {
         <Line k='Confidence' v={b.confidence || '—'} />
         {repair >= 0 && (
           <div className='mt-1.5 rounded-md border border-emerald-600/30 bg-emerald-600/5 px-2 py-1.5 text-emerald-800 dark:text-emerald-300'>
-            Repair priority {repair + 1}: reconnects {d.repairs[repair].settlements} settlement{d.repairs[repair].settlements === 1 ? '' : 's'},{' '}
-            {d.repairs[repair].buildings} buildings
+            Repair priority {repair + 1}: reconnects {d.repairs[repair].settlements} settlement{d.repairs[repair].settlements === 1 ? '' : 's'}, {d.repairs[repair].buildings}{' '}
+            buildings
           </div>
         )}
       </>
@@ -198,7 +192,7 @@ export function SelectionCard() {
     const h = parseHospital(p, s.lngLat)
     const served = d.settlements.filter((x) => x.hospital && x.hospital === h.name)
     const lost = served.filter((x) => x.status === 'cut_off' || x.status === 'hospital_cut_off')
-    kicker = s.originLngLat ? 'Medical Evacuation Destination' : (h.amenity ? `Health · ${h.amenity}` : 'Health facility')
+    kicker = s.originLngLat ? 'Medical Evacuation Destination' : h.amenity ? `Health · ${h.amenity}` : 'Health facility'
     title = h.name
     badge = h.isolated ? 'cut_off' : h.status
     ask = `Which settlements lost road access to ${h.name}?`
@@ -237,19 +231,17 @@ export function SelectionCard() {
         <Line k='Of those, lost road access' v={lost.length} />
         {app.jobId && routeCoords.length > 1 && (
           <div className='mt-2.5'>
-            <ElevationProfile
-              jobId={app.jobId}
-              path={routeCoords}
-              title='Road route elevation'
-              subtitle='Topography from Copernicus DEM'
-            />
+            <ElevationProfile jobId={app.jobId} path={routeCoords} title='Road route elevation' subtitle='Topography from Copernicus DEM' />
           </div>
         )}
       </>
     )
   } else if (s.kind === 'building' || s.kind === 'road') {
     const hit = str(p.status) === 'hit'
-    kicker = s.kind === 'road' ? `Road · ${tagValue(p.tags, 'highway') || 'way'}` : `Building${str(p.facility_type) && str(p.facility_type) !== 'building' ? ` · ${str(p.facility_type)}` : ''}`
+    kicker =
+      s.kind === 'road'
+        ? `Road · ${tagValue(p.tags, 'highway') || 'way'}`
+        : `Building${str(p.facility_type) && str(p.facility_type) !== 'building' ? ` · ${str(p.facility_type)}` : ''}`
     title = str(p.name) || (s.kind === 'road' ? 'Unnamed road' : 'Building')
     badge = hit ? 'hit' : 'not_hit'
     body = (
@@ -318,14 +310,18 @@ export function SelectionCard() {
             </button>
           </div>
         )}
-        {(ns || nh) && <p className='pt-1 text-[0.6875rem] text-muted-foreground'>Distances are straight-line. Whether a road gets there is the settlement's status: open it to see its road route.</p>}
+        {(ns || nh) && (
+          <p className='pt-1 text-[0.6875rem] text-muted-foreground'>
+            Distances are straight-line. Whether a road gets there is the settlement's status: open it to see its road route.
+          </p>
+        )}
       </>
     )
   }
 
   return (
-    <div className='overflow-hidden rounded-lg border bg-background shadow-lg'>
-      <div className='flex items-start gap-2 border-b px-3 py-2.5'>
+    <div className='flex max-h-full flex-col overflow-hidden rounded-lg border bg-background shadow-lg'>
+      <div className='flex shrink-0 items-start gap-2 border-b px-3 py-2.5'>
         <div className='min-w-0 flex-1'>
           <div className='truncate text-[0.6875rem] text-muted-foreground capitalize'>{kicker}</div>
           <div className='truncate text-sm font-semibold'>{title}</div>
@@ -338,15 +334,10 @@ export function SelectionCard() {
           <X className='size-4' />
         </button>
       </div>
-      {body && <div className='px-3 py-2 text-xs'>{body}</div>}
-      <div className='flex flex-wrap items-center gap-1 border-t px-2 py-1.5'>
+      {body && <div className='min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-2 text-xs'>{body}</div>}
+      <div className='flex shrink-0 flex-wrap items-center gap-1 border-t px-2 py-1.5'>
         {ask && app.jobId && (
-          <Button
-            variant='ghost'
-            size='sm'
-            className='h-7 gap-1.5 px-2 text-xs'
-            onClick={() => app.askAssistant(ask!, { id: str(p.osm_id), kind: s.kind, coordinates: s.lngLat })}
-          >
+          <Button variant='ghost' size='sm' className='h-7 gap-1.5 px-2 text-xs' onClick={() => app.askAssistant(ask!, { id: str(p.osm_id), kind: s.kind, coordinates: s.lngLat })}>
             <Bot className='size-3.5' /> Ask
           </Button>
         )}

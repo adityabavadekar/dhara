@@ -8,11 +8,15 @@ import { cn } from '@/lib/utils'
 import { Dot, Empty, List, Note, Row, Section, StatusBadge, ViewIntro } from './common'
 
 type Data = ReturnType<typeof useJobData>
-const FILTERS = ['cut_off', 'hospital_cut_off', 'detour', 'connected', 'no_baseline_route', 'not_on_network'] as const
+const FILTERS = ['cut_off', 'hospital_cut_off', 'road_lost', 'detour', 'connected', 'no_baseline_route', 'not_on_network'] as const
+
+/** The status shown: a longer route that is now on foot only is reported as "road lost". */
+const shown = (s: Settlement) => (s.status === 'detour' && s.raw.vehicle_access === 'lost' ? 'road_lost' : s.status)
 
 function access(s: Settlement): string {
-  if (s.status === 'cut_off') return 'No road out to a town, health facility or beyond the area'
+  if (s.status === 'cut_off') return 'No way out, even on foot, to a town, health facility or beyond the area'
   if (s.status === 'hospital_cut_off') return `No road to ${s.hospital || 'a hospital'}`
+  if (shown(s) === 'road_lost') return `No road to ${s.hospital || 'a hospital'}; ${fmtHours(s.hoursAfter)} on foot`
   if (s.status === 'detour')
     return `${fmtHours(s.hoursAfter)} to ${s.hospital || 'hospital'}${s.delayHours ? `, ${fmtHours(s.delayHours)} longer` : ''}`
   if (s.status === 'connected') return `${fmtHours(s.hoursAfter ?? s.hoursBefore)} to ${s.hospital || 'hospital'}`
@@ -25,16 +29,16 @@ export function CutOff({ d }: { d: Data }) {
   const { t } = d.facts
   const counts = useMemo(() => {
     const c: Record<string, number> = {}
-    for (const s of d.settlements) c[s.status] = (c[s.status] ?? 0) + 1
+    for (const s of d.settlements) c[shown(s)] = (c[shown(s)] ?? 0) + 1
     return c
   }, [d.settlements])
-  const firstAffected = FILTERS.find((f) => (counts[f] ?? 0) > 0 && ['cut_off', 'hospital_cut_off', 'detour'].includes(f))
+  const firstAffected = FILTERS.find((f) => (counts[f] ?? 0) > 0 && ['cut_off', 'hospital_cut_off', 'road_lost', 'detour'].includes(f))
   const [filter, setFilter] = useState<string | 'all'>(firstAffected ?? 'all')
   const [q, setQ] = useState('')
   const [visibleCount, setVisibleCount] = useState(300)
   const sel = app.selection
   const rows = d.settlements.filter(
-    (s) => (filter === 'all' || s.status === filter) && nameMatches(s.name, q)
+    (s) => (filter === 'all' || shown(s) === filter) && nameMatches(s.name, q)
   )
 
   const selectSettlement = (s: Settlement) => app.select({ kind: 'settlement', props: s.raw, lngLat: s.at }, 13)
@@ -45,8 +49,9 @@ export function CutOff({ d }: { d: Data }) {
         question='Who is cut off?'
         answer={
           <>
-            <b>{counts.cut_off ?? 0}</b> {(counts.cut_off ?? 0) === 1 ? 'settlement has' : 'settlements have'} no road out at all and <b>{counts.hospital_cut_off ?? 0}</b> more lost road
-            access to a hospital. Click a settlement to see its route to hospital before and after the event.
+            <b>{(counts.hospital_cut_off ?? 0) + (counts.road_lost ?? 0)}</b> {(counts.hospital_cut_off ?? 0) + (counts.road_lost ?? 0) === 1 ? 'settlement' : 'settlements'} lost
+            their road to a hospital, and <b>{counts.cut_off ?? 0}</b> {(counts.cut_off ?? 0) === 1 ? 'has' : 'have'} no way out at all, even on foot. Click a settlement to see
+            its route to hospital before and after the event.
           </>
         }
       />
@@ -75,7 +80,7 @@ export function CutOff({ d }: { d: Data }) {
                 <div className='flex items-center gap-2'>
                   <span className='truncate font-medium'>{s.name}</span>
                   <span className='ml-auto shrink-0 text-[0.6875rem] tabular-nums text-muted-foreground'>{s.buildings} bldg</span>
-                  <StatusBadge status={s.status} />
+                  <StatusBadge status={shown(s)} />
                 </div>
                 <div className='mt-0.5 truncate text-[0.6875rem] text-muted-foreground'>{access(s)}</div>
                 {(() => {

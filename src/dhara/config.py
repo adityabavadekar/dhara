@@ -27,9 +27,11 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("CDSE_SENTINEL_HUB_CLIENT_SECRET", "CDSE_CLIENT_SECRET"),
     )
-    # Address people open the dashboard at (links inside report PDFs) and the port this API listens
-    # on (the server prints its own report page for the PDF).
+    # Public address of this API (file links inside report PDFs), of the dashboard if it is hosted
+    # elsewhere (empty: same as the API), and the port this API listens on (the server prints its
+    # own report page for the PDF).
     public_url: str = Field(default="http://localhost:8000", validation_alias="DHARA_PUBLIC_URL")
+    web_url: str = Field(default="", validation_alias="DHARA_WEB_URL")
     api_port: int = Field(default=8000, validation_alias="DHARA_API_PORT")
     # Optional CDSE S3 (eodata) keys: preferred route for Copernicus DEM GLO-30 COG tiles.
     cdse_s3_access_key: SecretStr | None = None

@@ -1,4 +1,4 @@
-import { pinyin } from 'pinyin-pro'
+import { pinyinNow } from './pinyin'
 
 // Rough Devanagari → Latin transliteration so a typed "gosaikunda" finds "गोसाइँकुण्ड".
 // Mirrors dhara.assistant.entities.latin; used only for matching, never shown.
@@ -54,7 +54,8 @@ export type NameKeys = { exact: string; latin: string; words: string[] }
 export function nameKeys(name: string): NameKeys {
   const exact = name.toLowerCase()
   let lat = latin(name)
-  if (HAN.test(name)) lat = pinyin(name, { toneType: 'none', type: 'array' }).join('').toLowerCase()
+  const py = HAN.test(name) ? pinyinNow() : null
+  if (py) lat = py(name, { toneType: 'none', type: 'array' }).join('').toLowerCase()
   const ascii = lat.normalize('NFD').replace(/[^a-z0-9 ]/g, '')
   return { exact, latin: ascii, words: ascii.split(/\s+/).filter(Boolean).map(loose) }
 }

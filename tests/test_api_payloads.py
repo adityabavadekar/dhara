@@ -96,3 +96,45 @@ def test_report_status_reports_missing_pdf(client):
     st = client.get("/api/jobs/j3/report/status").json()
     assert st == {"en": "missing", "ne": "missing"}
     assert client.get("/api/jobs/nope/report/status").status_code == 404
+
+
+def test_finished_job_responses_are_cacheable(client):
+    from dhara.api.app import store
+
+    _settlements_job("j4")
+    store().create("j4", "analysis", {})
+    store().update("j4", status="done")
+    r = client.get("/api/jobs/j4/files/web/settlements.geojson?slim=1")
+    assert "max-age" in r.headers.get("cache-control", "")
+    # Status endpoints and the job itself change while a job runs, so they stay uncached.
+    assert "max-age" not in client.get("/api/jobs/j4/report/status").headers.get(
+        "cache-control", ""
+    )
+    assert "max-age" not in client.get("/api/jobs/j4").headers.get("cache-control", "")
+    store().update("j4", status="running")
+    r = client.get("/api/jobs/j4/files/web/settlements.geojson?slim=1")
+    assert "max-age" not in r.headers.get("cache-control", "")
+
+
+def test_memoized_serves_kept_copy_while_refreshing(monkeypatch):
+    import time
+
+    from dhara.api import app as appmod
+
+    calls = []
+
+    def build():
+        calls.append(1)
+        return len(calls)
+
+    key = ("test", "memo")
+    appmod._memo.pop(key, None)
+    assert appmod._memoized(key, build) == 1
+    assert appmod._memoized(key, build) == 1 and len(calls) == 1  # kept copy, no rebuild
+    monkeypatch.setattr(appmod, "_MEMO_TTL_S", 0.0)
+    assert appmod._memoized(key, build) == 1  # stale copy served at once
+    for _ in range(50):  # rebuilt in the background
+        if appmod._memo[key][1] == 2:
+            break
+        time.sleep(0.02)
+    assert appmod._memo[key][1] == 2

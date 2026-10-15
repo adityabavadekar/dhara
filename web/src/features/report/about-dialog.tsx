@@ -4,7 +4,6 @@ import { Info } from 'lucide-react'
 import { api, type ModelRun } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 
@@ -14,11 +13,24 @@ type Tab = (typeof TABS)[number]
 
 const STEPS: [string, string][] = [
   ['Find images', 'Sentinel-1 radar passes from the same orbit track before and after the date, and the clearest Sentinel-2 pair when the sky allows.'],
-  ['Map the change', 'Radar change detection for new water, a second detector for debris and scour (debris does not look like water to radar), and a segmentation model trained on Kuro Siwo. Terrain from the Copernicus DEM rules out water on steep slopes and high ground.'],
+  [
+    'Map the change',
+    'Radar change detection for new water, a second detector for debris and scour (debris does not look like water to radar), and a segmentation model trained on Kuro Siwo. Terrain from the Copernicus DEM rules out water on steep slopes and high ground.',
+  ],
   ['Combine', 'The methods are pooled into flood and debris probability, a confidence tier, and a mask of ground the radar could not see.'],
+  [
+    'Apply physical rules',
+    'Each pixel is first judged alone; then rules keep only what a flood or debris flow can physically do. Water cannot stand more than 25 m above the nearest river or on slopes over 25°; debris not more than 55 m or over 50°. Patches smaller than 12 pixels are radar noise. Debris must connect to the river network. Low valley floor next to the mapped footprint, up to the level the flood reached, is filled in, including ground the radar could not see; the river channel the flow swept through and landslide scars that run into it are added. Anything filled in keeps low confidence, because it was inferred, not seen.',
+  ],
   ['Overlay assets', 'Pre-event OpenStreetMap buildings, roads and bridges are intersected with the map. Each bridge is checked separately for loss of its strong radar return.'],
-  ['Test access', 'A road and trail network from OpenStreetMap is cut where flood or debris crosses it. Each settlement is checked for a route to a town, health facility or the edge of the area, before and after.'],
-  ['Report', 'A situation report in English and Nepali: a one-page summary first, then maps and full tables of damage, cut-off settlements, repairs and traced flood paths. Every figure is read from the results and checked; a provenance file lists scenes, parameters and timings.'],
+  [
+    'Test access',
+    'A road and trail network from OpenStreetMap is cut where flood or debris crosses it. Each settlement is checked for a route to a town, health facility or the edge of the area, before and after.',
+  ],
+  [
+    'Report',
+    'A situation report in English and Nepali: a one-page summary first, then maps and full tables of damage, cut-off settlements, repairs and traced flood paths. Every figure is read from the results and checked; a provenance file lists scenes, parameters and timings.',
+  ],
 ]
 
 const LIMITS: string[] = [
@@ -34,41 +46,39 @@ const LIMITS: string[] = [
 
 const f = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(2))
 
+/** "unet_r34_imagenet_v2" -> "U-Net ResNet-34 · v2" */
+function runLabel(name: string): string {
+  const arch = /unetplusplus/.test(name) ? 'U-Net++' : /unet/.test(name) ? 'U-Net' : name.split('_')[0]
+  const enc = name.match(/_r(\d+)_/)?.[1]
+  const ver = name.match(/_(v\d+)$/)?.[1]
+  return [arch + (enc ? ` ResNet-${enc}` : ''), ver].filter(Boolean).join(' · ')
+}
+
 function ModelTable({ runs, deployed }: { runs: ModelRun[]; deployed: string | null }) {
   return (
-    <Table className='text-xs'>
+    <Table className='text-xs [&_th]:h-auto [&_th]:py-2 [&_th]:align-bottom [&_th]:whitespace-normal'>
       <TableHeader>
         <TableRow>
-          <TableHead>Variant</TableHead>
+          <TableHead>Model</TableHead>
           <TableHead className='text-right'>F1 test events</TableHead>
-          <TableHead className='text-right'>F1 mountain</TableHead>
-          <TableHead className='text-right'>IoU mountain</TableHead>
-          <TableHead className='text-right'>Sen1Floods11 IoU (test / Bolivia)</TableHead>
+          <TableHead className='text-right'>F1 unseen mountains</TableHead>
+          <TableHead className='text-right'>Sen1Floods11 IoU test / Bolivia</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {[...runs].sort((a, b) => Number(b.mountain_held_out) - Number(a.mountain_held_out)).map((r) => (
+        {runs.map((r) => (
           <TableRow key={r.run_name} className={r.run_name === deployed ? 'bg-emerald-600/5 font-medium shadow-[inset_3px_0_0_var(--color-emerald-600)]' : ''}>
-            <TableCell>
-              {r.run_name}
+            <TableCell className='whitespace-normal'>
+              <span title={r.run_name}>{runLabel(r.run_name)}</span>
               {r.run_name === deployed && (
-                <span className='ml-2 inline-flex items-center gap-1 rounded-md border border-emerald-600/30 bg-emerald-600/10 px-1.5 py-0.5 text-[0.6875rem] font-semibold text-emerald-700 dark:text-emerald-300'>
+                <span className='mt-0.5 flex w-fit items-center gap-1 rounded-md border border-emerald-600/30 bg-emerald-600/10 px-1.5 py-0.5 text-[0.625rem] font-semibold text-emerald-700 dark:text-emerald-300'>
                   <span className='size-1.5 rounded-full bg-emerald-600' /> In use
                 </span>
               )}
             </TableCell>
-            <TableCell className={cn('text-right tabular-nums', !r.mountain_held_out && 'text-muted-foreground')}>
-              {f(r.test.f1_flood)}
-              {!r.mountain_held_out && <span className='ml-1 text-[0.625rem]'>not held out</span>}
-            </TableCell>
-            <TableCell className={cn('text-right tabular-nums', !r.mountain_held_out && 'text-muted-foreground')}>
-              {f(r.mountain.f1_flood)}
-              {!r.mountain_held_out && <span className='ml-1 text-[0.625rem]'>not held out</span>}
-            </TableCell>
-            <TableCell className={cn('text-right tabular-nums', !r.mountain_held_out && 'text-muted-foreground')}>{f(r.mountain.iou_flood)}</TableCell>
-            <TableCell className='text-right tabular-nums'>
-              {r.sen1floods11 ? `${f(r.sen1floods11.test)} / ${f(r.sen1floods11.bolivia)}` : '—'}
-            </TableCell>
+            <TableCell className='text-right tabular-nums'>{f(r.test.f1_flood)}</TableCell>
+            <TableCell className='text-right tabular-nums'>{f(r.mountain.f1_flood)}</TableCell>
+            <TableCell className='text-right tabular-nums'>{r.sen1floods11 ? `${f(r.sen1floods11.test)} / ${f(r.sen1floods11.bolivia)}` : '—'}</TableCell>
           </TableRow>
         ))}
       </TableBody>
@@ -89,7 +99,7 @@ export function AboutDialog() {
           <Info className='size-3.5' /> <span className='hidden md:inline'>About</span>
         </Button>
       </DialogTrigger>
-      <DialogContent className='flex max-h-[85vh] max-w-2xl flex-col gap-0 p-0 sm:max-w-2xl'>
+      <DialogContent className='flex max-h-[85dvh] max-w-2xl flex-col gap-0 p-0 sm:max-w-2xl'>
         <DialogHeader className='space-y-1 border-b px-5 pt-4 pb-0'>
           <DialogTitle className='text-sm'>About Dhara</DialogTitle>
           <DialogDescription className='text-xs'>{cfg.data?.disclaimer ?? 'Educational prototype, not an operational tool.'}</DialogDescription>
@@ -101,7 +111,7 @@ export function AboutDialog() {
                 onClick={() => setTab(t)}
                 className={cn(
                   'h-8 border-b-2 px-2 text-xs font-medium',
-                  tab === t ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'
+                  tab === t ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
                 )}
               >
                 {t}
@@ -109,7 +119,7 @@ export function AboutDialog() {
             ))}
           </nav>
         </DialogHeader>
-        <ScrollArea className='min-h-0 flex-1'>
+        <div className='min-h-0 flex-1 overflow-y-auto overscroll-contain'>
           <div className='space-y-4 px-5 py-4 text-xs leading-relaxed'>
             {tab === 'How it works' && (
               <ol className='space-y-3'>
@@ -129,40 +139,30 @@ export function AboutDialog() {
                 {dep ? (
                   <div className='space-y-1 text-muted-foreground'>
                     <p>
-                      <span className='font-medium text-foreground'>{dep.architecture}</span>, {dep.encoder_weights}, trained on{' '}
-                      {dep.training_data}.
+                      <span className='font-medium text-foreground'>{dep.architecture}</span>, {dep.encoder_weights}, trained on {dep.training_data}.
                     </p>
                     <p>
-                      "Mountain" is {dep.splits.mountain_events?.length ?? '—'} high-relief Kuro Siwo events ({dep.splits.counts?.mountain ?? '—'}{' '}
-                      tiles), never used in training, as the stand-in for unseen Himalayan scenes. "Test events" are Kuro Siwo's
-                      official test floods. Kuro Siwo scores are for the flood class; Sen1Floods11 scores are for water (it has no
-                      before-images and no flood/permanent split), where Bolivia is a flood the model never saw.
+                      "Mountain" is {dep.splits.mountain_events?.length ?? '—'} high-relief Kuro Siwo events ({dep.splits.counts?.mountain ?? '—'} tiles), never used in training,
+                      as the stand-in for unseen Himalayan scenes. "Test events" are Kuro Siwo's official test floods. Kuro Siwo scores are for the flood class; Sen1Floods11 scores
+                      are for water (it has no before-images and no flood/permanent split), where Bolivia is a flood the model never saw.
                     </p>
-                    {model.data && model.data.runs.some((r) => !r.mountain_held_out) && (
-                      <p className='rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-2 text-amber-900 dark:text-amber-200'>
-                        Runs marked "not held out" are earlier runs whose split let test and mountain tiles into training, so their
-                        scores overstate performance on unseen floods. They are kept for the record; only the other rows are
-                        comparable.
-                      </p>
-                    )}
                   </div>
                 ) : (
                   <p className='text-muted-foreground'>No trained model is installed; mapping uses the radar change detectors only.</p>
                 )}
                 {model.data && model.data.runs.length > 0 && (
-                  <div className='overflow-hidden rounded-lg border'>
+                  <div className='min-w-0 overflow-hidden rounded-lg border'>
                     <ModelTable runs={model.data.runs} deployed={dep?.run_name ?? null} />
                   </div>
                 )}
                 {dep?.mountain_held_out && dep.mountain.event_f1_flood_ci95 && (
                   <p className='text-muted-foreground'>
-                    Model in use, mountain events: 95% interval for per-event F1 {f(dep.mountain.event_f1_flood_ci95[0])} to{' '}
-                    {f(dep.mountain.event_f1_flood_ci95[1])}.
+                    Model in use, mountain events: 95% interval for per-event F1 {f(dep.mountain.event_f1_flood_ci95[0])} to {f(dep.mountain.event_f1_flood_ci95[1])}.
                   </p>
                 )}
                 <p className='text-muted-foreground'>
-                  The comparison with the Copernicus EMS EMSR927 maps for the Trishuli case study is in the project report. Those maps
-                  are used only to check results, never as input.
+                  The comparison with the Copernicus EMS EMSR927 maps for the Trishuli case study is in the project report. Those maps are used only to check results, never as
+                  input.
                 </p>
               </>
             )}
@@ -179,8 +179,8 @@ export function AboutDialog() {
             {tab === 'Data and credits' && (
               <>
                 <p className='text-muted-foreground'>
-                  Inputs are Sentinel-1, Sentinel-2, the Copernicus DEM, and OpenStreetMap as it was on{' '}
-                  {cfg.data?.osm_snapshot_max.slice(0, 10) ?? '—'}. Background maps are for display only and never enter the analysis.
+                  Inputs are Sentinel-1, Sentinel-2, the Copernicus DEM, and OpenStreetMap as it was on {cfg.data?.osm_snapshot_max.slice(0, 10) ?? '—'}. Background maps are for
+                  display only and never enter the analysis.
                 </p>
                 <div className='space-y-1.5 rounded-lg border bg-muted/30 p-3'>
                   {(cfg.data?.attributions ?? []).map((a) => (
@@ -190,7 +190,7 @@ export function AboutDialog() {
               </>
             )}
           </div>
-        </ScrollArea>
+        </div>
       </DialogContent>
     </Dialog>
   )

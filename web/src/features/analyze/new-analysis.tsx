@@ -30,11 +30,25 @@ function areaKm2(p: Polygon): number {
 }
 
 function bboxPolygon(text: string): Polygon | null {
-  const v = text.split(/[\s,]+/).filter(Boolean).map(Number)
+  const v = text
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .map(Number)
   if (v.length !== 4 || v.some((n) => !Number.isFinite(n))) return null
   const [x0, y0, x1, y1] = v
   if (!(x0 < x1 && y0 < y1)) return null
-  return { type: 'Polygon', coordinates: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]] }
+  return {
+    type: 'Polygon',
+    coordinates: [
+      [
+        [x0, y0],
+        [x1, y0],
+        [x1, y1],
+        [x0, y1],
+        [x0, y0],
+      ],
+    ],
+  }
 }
 
 function Step({ n, title, done, children }: { n: number; title: string; done: boolean; children: React.ReactNode }) {
@@ -42,10 +56,7 @@ function Step({ n, title, done, children }: { n: number; title: string; done: bo
     <section className='space-y-2.5'>
       <div className='flex items-center gap-2'>
         <span
-          className={cn(
-            'flex size-5 items-center justify-center rounded-full text-[0.6875rem] font-semibold',
-            done ? 'bg-emerald-600 text-white' : 'bg-muted text-foreground'
-          )}
+          className={cn('flex size-5 items-center justify-center rounded-full text-[0.6875rem] font-semibold', done ? 'bg-emerald-600 text-white' : 'bg-muted text-foreground')}
         >
           {done ? <Check className='size-3' /> : n}
         </span>
@@ -56,6 +67,21 @@ function Step({ n, title, done, children }: { n: number; title: string; done: bo
   )
 }
 
+/** `time` and `offset` give the event's local time where it is known. */
+type Preset = { name: string; place: string; event: string; time?: string; offset?: string; bbox: [number, number, number, number] }
+
+/** Known floods to start from: the area around the worst-hit stretch (EPSG:4326 bbox) and the event
+ *  day. Each was checked to have Sentinel-1 passes before and after the date. */
+const PRESETS: Preset[] = [
+  { name: 'Budhi Gandaki 2026', place: 'Jagat to Machhakhola, Gorkha, Nepal', event: '2026-10-11', time: '04:00', offset: '+05:45', bbox: [84.84, 28.18, 84.94, 28.36] },
+  { name: 'Bidur, 10 km (fast)', place: 'Bidur, Trishuli valley, Nepal', event: '2026-08-26', bbox: [85.1, 27.86, 85.2, 27.95] },
+  { name: 'Trishuli 2026', place: 'Trishuli valley, Nepal', event: '2026-08-26', time: '08:40', offset: '+05:45', bbox: [85.25, 27.95, 85.4, 28.2] },
+  { name: 'Melamchi 2021', place: 'Melamchi Bazaar, Sindhupalchok, Nepal', event: '2021-06-15', bbox: [85.52, 27.8, 85.62, 27.95] },
+  { name: 'Teesta 2023', place: 'Chungthang, Sikkim, India', event: '2023-10-04', bbox: [88.6, 27.55, 88.7, 27.65] },
+  { name: 'Beas, Mandi 2023', place: 'Mandi, Himachal Pradesh, India', event: '2023-07-10', bbox: [76.88, 31.66, 77.0, 31.76] },
+  { name: 'Chamoli 2021', place: 'Raini to Tapovan, Uttarakhand, India', event: '2021-02-07', bbox: [79.6, 30.45, 79.8, 30.56] },
+]
+
 export function NewAnalysis() {
   const app = useApp()
   const cfg = useQuery({ queryKey: ['config'], queryFn: api.config })
@@ -64,9 +90,11 @@ export function NewAnalysis() {
   const [offset, setOffset] = useState('+05:45')
   const [bbox, setBbox] = useState('')
   const [placeQuery, setPlaceQuery] = useState('')
+  const [selectedName, setSelectedName] = useState<string | null>(null)
   const [showPlaces, setShowPlaces] = useState(false)
   const [useS2, setUseS2] = useState(true)
   const [useMl, setUseMl] = useState(true)
+  const [note, setNote] = useState('')
 
   const places = useQuery({ queryKey: ['places', placeQuery], queryFn: () => api.places(placeQuery), enabled: showPlaces })
   const event = day ? eventIso(day, time, offset) : null
@@ -80,8 +108,17 @@ export function NewAnalysis() {
     preview.reset()
   }, [app.aoi, event, preview.reset])
   const run = useMutation({
-    mutationFn: () => api.createJob({ aoi: app.aoi!, event: event!, use_s2: useS2, use_ml: useMl && !!cfg.data?.ml_model_available }),
-    onSuccess: ({ id }) => {
+    mutationFn: () =>
+      api.createJob({
+        aoi: app.aoi!,
+        event: event!,
+        use_s2: useS2,
+        use_ml: useMl && !!cfg.data?.ml_model_available,
+        name: selectedName || placeQuery || undefined,
+        note: note.trim() || undefined,
+      }),
+    onSuccess: ({ id, reused }) => {
+      if (reused) toast.info('This area and time were already analysed with the same options, so that run is opened instead.')
       app.openJob(id)
       app.setView('overview')
     },
@@ -92,16 +129,32 @@ export function NewAnalysis() {
     app.setAoi(p.polygon)
     app.fitTo(p.bbox)
     setPlaceQuery(p.name)
+    setSelectedName(p.name)
     setShowPlaces(false)
   }
 
-  const caseStudy = () => {
-    const p: Polygon = { type: 'Polygon', coordinates: [[[85.25, 27.95], [85.4, 27.95], [85.4, 28.2], [85.25, 28.2], [85.25, 27.95]]] }
+  const loadPreset = (pr: Preset) => {
+    const [x0, y0, x1, y1] = pr.bbox
+    const p: Polygon = {
+      type: 'Polygon',
+      coordinates: [
+        [
+          [x0, y0],
+          [x1, y0],
+          [x1, y1],
+          [x0, y1],
+          [x0, y0],
+        ],
+      ],
+    }
     app.setAoi(p)
     app.fitTo(bounds(p.coordinates[0]))
-    setDay(new Date(2026, 7, 26))
-    setTime('')
-    setBbox('85.25, 27.95, 85.40, 28.20')
+    setSelectedName(pr.name)
+    const [yy, mm, dd] = pr.event.split('-').map(Number)
+    setDay(new Date(yy, mm - 1, dd))
+    setTime(pr.time ?? '')
+    if (pr.offset) setOffset(pr.offset)
+    setBbox(pr.bbox.map((v) => v.toFixed(2)).join(', '))
   }
 
   return (
@@ -114,13 +167,27 @@ export function NewAnalysis() {
           <div className='text-sm font-semibold tracking-tight'>New analysis</div>
           <div className='text-[0.6875rem] text-muted-foreground'>Any area, any flood date</div>
         </div>
-        <button type='button' onClick={caseStudy} className='ml-auto text-[0.6875rem] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline'>
-          Load case study
-        </button>
       </div>
 
       <div className='min-h-0 flex-1 overflow-y-auto'>
         <div className='space-y-6 p-3'>
+          <section className='space-y-2'>
+            <div className='text-xs font-semibold'>Start from a past flood</div>
+            <div className='flex flex-wrap gap-1.5'>
+              {PRESETS.map((pr) => (
+                <button
+                  key={pr.name}
+                  type='button'
+                  onClick={() => loadPreset(pr)}
+                  title={`${pr.place} · ${pr.event}`}
+                  className='rounded-full border bg-card px-2.5 py-1 text-xs hover:bg-muted/60'
+                >
+                  {pr.name}
+                </button>
+              ))}
+            </div>
+            <p className='text-[0.6875rem] text-muted-foreground'>Fills the area and date; check them, then run.</p>
+          </section>
           <Step n={1} title='Area' done={!!app.aoi && !tooBig}>
             <div className='grid grid-cols-2 gap-1.5'>
               <Button
@@ -174,12 +241,7 @@ export function NewAnalysis() {
               )}
             </div>
             <div className='flex gap-1.5'>
-              <Input
-                placeholder='or bounding box: W, S, E, N'
-                value={bbox}
-                onChange={(e) => setBbox(e.target.value)}
-                className='h-8 font-mono text-xs'
-              />
+              <Input placeholder='or bounding box: W, S, E, N' value={bbox} onChange={(e) => setBbox(e.target.value)} className='h-8 font-mono text-xs' />
               <Button
                 size='sm'
                 variant='secondary'
@@ -239,8 +301,7 @@ export function NewAnalysis() {
               </div>
             </div>
             <p className='text-[0.6875rem] text-muted-foreground'>
-              Radar passes from the same orbit track before and after this time are compared. The time decides which same-day pass
-              counts as "after".
+              Radar passes from the same orbit track before and after this time are compared. The time decides which same-day pass counts as "after".
             </p>
           </Step>
 
@@ -263,14 +324,27 @@ export function NewAnalysis() {
               <div className='flex items-center justify-between gap-2 px-3 py-2 text-xs'>
                 <div>
                   <div className='font-medium'>Segmentation model</div>
-                  <div className='text-[0.6875rem] text-muted-foreground'>
-                    {cfg.data?.ml_model_available ? 'Trained on Kuro Siwo' : 'No trained model installed'}
-                  </div>
+                  <div className='text-[0.6875rem] text-muted-foreground'>{cfg.data?.ml_model_available ? 'Trained on Kuro Siwo' : 'No trained model installed'}</div>
                 </div>
                 <Switch checked={useMl && !!cfg.data?.ml_model_available} onCheckedChange={setUseMl} disabled={!cfg.data?.ml_model_available} />
               </div>
             </div>
           </Step>
+
+          <div className='space-y-1'>
+            <Label htmlFor='run-note' className='text-[0.6875rem] text-muted-foreground'>
+              Note for this run (optional)
+            </Label>
+            <Input
+              id='run-note'
+              maxLength={200}
+              placeholder='e.g. after the bridge collapse report'
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className='h-8 text-xs'
+            />
+            <p className='text-[0.6875rem] text-muted-foreground'>Shown to everyone with the run in the analyses list. It cannot be edited later.</p>
+          </div>
 
           {preview.error && (
             <Alert variant='destructive'>

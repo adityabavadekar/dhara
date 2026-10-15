@@ -34,6 +34,8 @@ from __future__ import annotations
 import functools
 import threading
 import xml.etree.ElementTree as ET
+from collections import OrderedDict
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 
 import numpy as np
@@ -503,6 +505,31 @@ class Slice:
     assets: dict[str, str]
 
 
+# Product XML (annotation, calibration, noise; a few MB each) is fetched once per file, in parallel:
+# a slice starts all its files at once, and later readers wait on the same download.
+_XML_KEEP = 24
+_xml_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="s1-xml")
+_xml_futures: OrderedDict[str, Future[bytes]] = OrderedDict()
+_xml_lock = threading.Lock()
+
+
+def _xml_future(s3_url: str) -> Future[bytes]:
+    with _xml_lock:
+        fut = _xml_futures.get(s3_url)
+        if fut is None or (fut.done() and fut.exception() is not None):
+            fut = _xml_pool.submit(cdse_s3.get_bytes, s3_url)
+            _xml_futures[s3_url] = fut
+            while len(_xml_futures) > _XML_KEEP:
+                _xml_futures.popitem(last=False)
+        else:
+            _xml_futures.move_to_end(s3_url)
+        return fut
+
+
+def _xml(s3_url: str) -> bytes:
+    return _xml_future(s3_url).result()
+
+
 @functools.lru_cache(maxsize=32)
 def _slice(scene_id: str) -> Slice:
     r = guarded_request("GET", STAC_ITEM_URL.format(scene_id), timeout_s=60)
@@ -511,7 +538,11 @@ def _slice(scene_id: str) -> Slice:
     assets = {
         k: v["href"] for k, v in r.json()["assets"].items() if v.get("href", "").startswith("s3://")
     }
-    ann = parse_annotation(cdse_s3.get_bytes(assets["schema-product-vv"]))
+    for pol in ("vv", "vh"):  # start the files the pass reads next, alongside the annotation
+        for kind in ("calibration", "noise"):
+            if (k := f"schema-{kind}-{pol}") in assets:
+                _xml_future(assets[k])
+    ann = parse_annotation(_xml(assets["schema-product-vv"]))
     return Slice(ann, Orbit(ann.orbit_t, ann.orbit_pos, ann.orbit_vel), assets)
 
 
@@ -535,8 +566,8 @@ def _calibrated(sl: Slice, pol: str, win, decim: int = 1) -> dict[str, np.ndarra
     of CAL_CHUNK lines (with the Lee window's overlap) so large windows fit in memory. `decim` > 1
     reads the product's overviews instead (every `decim`-th line and pixel)."""
     r0, r1, c0, c1 = win
-    cal = parse_calibration(cdse_s3.get_bytes(sl.assets[f"schema-calibration-{pol}"]))
-    noise_xml = cdse_s3.get_bytes(sl.assets[f"schema-noise-{pol}"])
+    cal = parse_calibration(_xml(sl.assets[f"schema-calibration-{pol}"]))
+    noise_xml = _xml(sl.assets[f"schema-noise-{pol}"])
     half = (decim - 1) / 2
 
     def chunk(dn: np.ndarray, rows: np.ndarray, cols: np.ndarray) -> dict[str, np.ndarray]:

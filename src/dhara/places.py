@@ -7,6 +7,7 @@ CRS for all geometries is EPSG:4326.
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 # Curated pre-event gazetteer for Nepal, the Trishuli-Bhotekoshi corridor,
@@ -72,7 +73,7 @@ PLACES: list[dict[str, Any]] = [
         "name_ne": "बेत्रावती",
         "category": "town",
         "center": [85.185, 27.975],
-        "bbox": [85.155, 27.945, 28.005, 85.215],
+        "bbox": [85.155, 27.945, 85.215, 28.005],
         "description": "Trishuli river terrace · Historic border of Nuwakot/Rasuwa",
     },
     {
@@ -157,6 +158,24 @@ PLACES: list[dict[str, Any]] = [
         "description": "Uttarakhand, India · Benchmark Feb 2021 rock-ice avalanche",
     },
     {
+        "id": "teesta",
+        "name": "Teesta / Chungthang",
+        "name_ne": "टिस्टा / चुङथाङ",
+        "category": "valley",
+        "center": [88.650, 27.600],
+        "bbox": [88.550, 27.500, 88.750, 27.700],
+        "description": "Sikkim, India · Glacial lake outburst flood (GLOF) corridor",
+    },
+    {
+        "id": "beas_mandi",
+        "name": "Beas, Mandi",
+        "name_ne": "व्यास, मण्डी",
+        "category": "valley",
+        "center": [76.940, 31.710],
+        "bbox": [76.800, 31.600, 77.050, 31.800],
+        "description": "Himachal Pradesh, India · Severe July 2023 monsoon flood",
+    },
+    {
         "id": "kathmandu",
         "name": "Kathmandu Valley",
         "name_ne": "काठमाडौं उपत्यका",
@@ -220,3 +239,134 @@ def search_places(query: str, limit: int = 8) -> list[dict[str, Any]]:
         item["polygon"] = bbox_to_polygon(item["bbox"])
         results.append(item)
     return results
+
+
+def resolve_location_name(
+    req: dict[str, Any] | None = None,
+    summary: dict[str, Any] | None = None,
+    job_id: str | None = None,
+    jobs_dir: Any = None,
+) -> str | None:
+    """Resolve a clean human-readable location name for a job.
+
+    Checks in order of priority:
+    1. Explicit request name (`req['name']`)
+    2. Summary location (`summary['location']`)
+    3. Prominent settlement from job artifacts (`settlements.parquet`)
+    4. Curated gazetteer match against AOI centroid and bounding box
+    5. Fallback coordinate representation
+    """
+    from pathlib import Path
+
+    req = req or {}
+    summary = summary or {}
+
+    # 1. Explicit name in request
+    for key in ("name", "location_name", "place_name"):
+        val = req.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+
+    # 2. Location already in summary
+    for key in ("location", "location_name", "place_name"):
+        val = summary.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+
+    # 3. Check settlements from job parquet if job_id is provided
+    if job_id:
+        base_dir = Path(jobs_dir) if jobs_dir else Path("data/jobs")
+        settle_p = base_dir / job_id / "settlements.parquet"
+        if settle_p.exists():
+            try:
+                import geopandas as gpd
+
+                df = gpd.read_parquet(settle_p)
+                if len(df) > 0 and "name" in df.columns:
+                    valid = df[df["name"].notna() & (df["name"].astype(str).str.strip() != "")]
+                    if "in_aoi" in valid.columns:
+                        inside = valid[valid["in_aoi"]]
+                        if len(inside) > 0:
+                            valid = inside
+                    if len(valid) > 0:
+                        if "buildings_500m" in valid.columns:
+                            top = valid.sort_values(by="buildings_500m", ascending=False).iloc[0]
+                        else:
+                            top = valid.iloc[0]
+                        s_name = str(top["name"]).strip()
+                        if s_name:
+                            from dhara.osm_names import shown_name
+
+                            return shown_name(s_name)
+            except Exception:
+                pass
+
+    # 4. Check AOI centroid and bbox against PLACES
+    aoi = req.get("aoi")
+    centroid: tuple[float, float] | None = None
+    aoi_bbox: tuple[float, float, float, float] | None = None
+    if isinstance(aoi, dict) and "coordinates" in aoi:
+        with contextlib.suppress(Exception):
+            coords = aoi["coordinates"]
+            pts = coords[0] if aoi.get("type") == "Polygon" else coords[0][0]
+            lons = [float(p[0]) for p in pts]
+            lats = [float(p[1]) for p in pts]
+            if lons and lats:
+                centroid = (sum(lons) / len(lons), sum(lats) / len(lats))
+                aoi_bbox = (min(lons), min(lats), max(lons), max(lats))
+
+    # For flowpath jobs
+    if not centroid and "lon" in req and "lat" in req:
+        with contextlib.suppress(Exception):
+            centroid = (float(req["lon"]), float(req["lat"]))
+
+    if centroid:
+        cx, cy = centroid
+        category_rank = {
+            "town": 0,
+            "municipality": 1,
+            "district_hq": 2,
+            "village": 3,
+            "settlement": 4,
+            "border": 5,
+            "junction": 6,
+            "confluence": 7,
+            "valley": 8,
+            "corridor": 9,
+            "district": 10,
+            "city": 11,
+        }
+
+        matches = []
+        for p in PLACES:
+            px0, py0, px1, py1 = p["bbox"]
+            inside = px0 <= cx <= px1 and py0 <= cy <= py1
+            overlap = False
+            if aoi_bbox:
+                overlap = not (
+                    aoi_bbox[2] < px0 or aoi_bbox[0] > px1 or aoi_bbox[3] < py0 or aoi_bbox[1] > py1
+                )
+            if inside or overlap:
+                area = (px1 - px0) * (py1 - py0)
+                rank = category_rank.get(p.get("category", ""), 99)
+                matches.append((0 if inside else 1, rank, area, p["name"]))
+
+        if matches:
+            matches.sort(key=lambda item: (item[0], item[1], item[2]))
+            return matches[0][3]
+
+        # Closest place within ~33 km
+        closest = None
+        min_dist_deg2 = 0.3**2
+        for p in PLACES:
+            pcx, pcy = p["center"]
+            d2 = (cx - pcx) ** 2 + (cy - pcy) ** 2
+            if d2 < min_dist_deg2:
+                min_dist_deg2 = d2
+                closest = p["name"]
+        if closest:
+            return closest
+
+        return f"{cy:.2f}°N {cx:.2f}°E"
+
+    return None

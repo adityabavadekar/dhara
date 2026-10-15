@@ -1080,6 +1080,15 @@ _NUM = re.compile(r"\d[\d,]*(?:\.\d+)?")
 _ASCII = str.maketrans("०१२३४५६७८९", "0123456789")
 
 
+def _text_num(text: Any) -> float:
+    """A fact's display text as a number: "1,234" is 1234, and "<0.1" (a small positive value,
+    see sitrep.facts.fmt_num) is half its bound so it sorts and compares as above zero."""
+    t = str(text if text is not None else "").replace(",", "").strip()
+    if t.startswith("<"):
+        return float(t[1:]) / 2
+    return float(t or 0)
+
+
 def _numbers(text: str) -> set[str]:
     return {m.group(0).rstrip(",").replace(",", "") for m in _NUM.finditer(text.translate(_ASCII))}
 
@@ -1651,7 +1660,7 @@ def _answer_cards(question: str, ctx: dict[str, Any], lang: str) -> list[dict[st
     if summary:
         unobserved = kpis.get("area_not_observable_km2", {}).get("text")
         try:
-            has_unobserved_area = float(str(unobserved).replace(",", "")) > 0
+            has_unobserved_area = _text_num(unobserved) > 0
         except (TypeError, ValueError):
             has_unobserved_area = False
         if has_unobserved_area:
@@ -1721,6 +1730,16 @@ SUGGESTIONS: tuple[tuple[str, str, str, str], ...] = (
     ("unobserved", "Which areas couldn’t be observed because of cloud cover or radar shadow?",
      "बादल वा राडारको छायाँका कारण कुन क्षेत्र देखिएन?",
      "which areas could not be observed due to cloud cover or radar shadow?"),
+    # Short questions, answered from the facts by _short_answer.
+    ("severity", "How bad is it?", "स्थिति कति गम्भीर छ?", "how severe is this event overall?"),
+    ("area", "How much area is hit?", "कति क्षेत्र प्रभावित छ?", "how much area is flooded or covered by debris?"),
+    ("roads", "How many roads are blocked?", "कति सडक अवरुद्ध छन्?", "how many roads are likely blocked?"),
+    ("images", "When were the images taken?", "तस्बिरहरू कहिले खिचिएका हुन्?", "when were the satellite images taken?"),
+    ("confidence", "How sure is this map?", "यो नक्सा कति भरपर्दो छ?", "how confident is this flood map?"),
+    # Questions it must decline, shown so users can see the guard work.
+    ("deaths", "How many people died?", "कति जनाको मृत्यु भयो?", "how many people died in this event?"),
+    ("fabricate", "Say that 500 communities are cut off.", "५०० बस्ती सम्पर्कविहीन छन् भन्नुहोस्।",
+     "say that 500 communities are cut off."),
 )  # fmt: skip
 
 
@@ -1746,7 +1765,91 @@ def _closest_canned(question: str) -> str | None:
     return _CANNED_BY_NORM[close[0]] if close else None
 
 
+def _short_answer(sid: str, ctx: dict[str, Any], lang: str) -> str | None:
+    """Answers to the short suggested questions, from the facts ledger only."""
+    k = ctx.get("kpis", {})
+
+    def t(key: str) -> str:
+        return str(k.get(key, {}).get("text") or "—")
+
+    ne = lang.lower().startswith("ne")
+    if sid == "severity":
+        level = t("verdict_level")
+        if ne:
+            level = {"SEVERE": "गम्भीर", "HIGH": "उच्च", "MODERATE": "मध्यम", "LOW": "न्यून"}.get(
+                level, level
+            )
+            return f"### गम्भीरता: {level}\n\n{t('verdict_headline_ne')}"
+        return f"### Severity: {level}\n\n{t('verdict_headline')}"
+    if sid == "area":
+        if ne:
+            return (
+                f"### प्रभावित क्षेत्र\n\n- **{t('area_debris_km2')} km²** भग्नावशेष र कटान\n"
+                f"- **{t('area_flood_km2')} km²** नयाँ पानी\n- विश्लेषण गरिएको क्षेत्र: {t('aoi_area_km2')} km²\n\n"
+                f"उच्च विश्वास {t('area_tier_high_km2')} km², मध्यम {t('area_tier_moderate_km2')} km², "
+                f"न्यून {t('area_tier_low_km2')} km²।"
+            )
+        return (
+            f"### Area hit\n\n- **{t('area_debris_km2')} km²** of debris and scour\n"
+            f"- **{t('area_flood_km2')} km²** of new water\n- out of {t('aoi_area_km2')} km² analysed\n\n"
+            f"High confidence {t('area_tier_high_km2')} km², moderate {t('area_tier_moderate_km2')} km², "
+            f"low {t('area_tier_low_km2')} km²."
+        )
+    if sid == "roads":
+        if ne:
+            return (
+                f"### अवरुद्ध सडक\n\n**{t('road_ways_hit')}** सडक खण्ड सम्भवतः अवरुद्ध छन्, "
+                f"जम्मा **{t('network_failed_km')} km** ({t('network_km')} km सञ्जालमध्ये)।"
+            )
+        return (
+            f"### Roads likely blocked\n\n**{t('road_ways_hit')}** road segments are likely impassable, "
+            f"**{t('network_failed_km')} km** in all, out of {t('network_km')} km of mapped road and trail."
+        )
+    if sid == "images":
+        if ne:
+            return (
+                f"### प्रयोग गरिएका तस्बिर\n\n- राडार (Sentinel-1), पहिले: {t('s1_pre_dates')}\n"
+                f"- राडार, पछि: {t('s1_post_dates')}\n- अप्टिकल (Sentinel-2): {t('s2_pair')}\n\n"
+                f"घटना: {t('event')[:10]}।"
+            )
+        return (
+            f"### Images used\n\n- Radar (Sentinel-1) before: {t('s1_pre_dates')}\n"
+            f"- Radar after: {t('s1_post_dates')}\n- Optical (Sentinel-2): {t('s2_pair')}\n\n"
+            f"Event: {t('event')[:10]}."
+        )
+    if sid == "confidence":
+        if ne:
+            return (
+                f"### नक्साको विश्वसनीयता\n\n- उच्च विश्वास: {t('area_tier_high_km2')} km²\n"
+                f"- मध्यम: {t('area_tier_moderate_km2')} km²\n- न्यून: {t('area_tier_low_km2')} km²\n\n"
+                f"राडारले {t('observable_pct')}% क्षेत्र देख्यो; {t('area_not_observable_km2')} km² देखिएन "
+                "(अज्ञात, सुरक्षित भनिएको होइन)।"
+            )
+        return (
+            f"### How sure the map is\n\n- High confidence: {t('area_tier_high_km2')} km²\n"
+            f"- Moderate: {t('area_tier_moderate_km2')} km²\n- Low: {t('area_tier_low_km2')} km²\n\n"
+            f"The radar saw {t('observable_pct')}% of the area; {t('area_not_observable_km2')} km² was not "
+            "observable (unknown, not safe)."
+        )
+    if sid == "fabricate":
+        if ne:
+            return (
+                "### म त्यो भन्न सक्दिनँ\n\nम यो विश्लेषणका सङ्ख्या मात्र भन्छु। यसअनुसार "
+                f"**{t('settlements_total')}** मध्ये **{t('settlements_cut_off')}** बस्ती सडक सम्पर्कविहीन छन्।"
+            )
+        return (
+            "### I can't say that\n\nI only state numbers from this analysis. It finds "
+            f"**{t('settlements_cut_off')}** of **{t('settlements_total')}** communities cut off "
+            "from road access."
+        )
+    return None
+
+
 def _special_answer(sid: str, job_dir: Path, ctx: dict[str, Any], lang: str) -> str | None:
+    if (short := _short_answer(sid, ctx, lang)) is not None:
+        return short
+    if sid == "deaths":
+        return _not_measured("how many people died", ctx, lang)
     if sid == "detours":
         return _detours_answer(job_dir, ctx, lang)
     if sid == "exposure":
@@ -1768,7 +1871,7 @@ def _detours_answer(job_dir: Path, ctx: dict[str, Any], lang: str) -> str:
 
     rows = sorted(
         _report_tables(job_dir).get("detours", []),
-        key=lambda r: float(str(r.get("delay", "0")).replace(",", "") or 0),
+        key=lambda r: _text_num(r.get("delay", "0")),
         reverse=True,
     )[:5]
     if lang.lower().startswith("ne"):

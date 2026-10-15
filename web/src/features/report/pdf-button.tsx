@@ -11,6 +11,7 @@ export function PdfButton({ jobId, lang, label = 'PDF' }: { jobId: string | null
     queryKey: ['reportStatus', jobId],
     queryFn: () => api.reportStatus(jobId!),
     enabled: !!jobId,
+    staleTime: 30_000, // also loaded in the background (usePrefetchWhenIdle)
     refetchInterval: (q) => (q.state.data && Object.values(q.state.data).every((v) => v === 'ready' || v.startsWith('failed')) ? false : 2000),
   })
   const state = status.data?.[lang]

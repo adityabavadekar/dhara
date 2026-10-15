@@ -23,6 +23,12 @@ import {
   Wrench,
   X,
   type LucideIcon,
+  Gauge,
+  Satellite,
+  ShieldCheck,
+  ShieldX,
+  TrafficCone,
+  Waves,
 } from 'lucide-react'
 import { useApp } from '@/context/app-state'
 import { useQuery } from '@tanstack/react-query'
@@ -54,10 +60,34 @@ const SUGGESTED_ICONS: Record<string, LucideIcon> = {
   detours: Route,
   exposure: Building,
   unobserved: EyeOff,
+  severity: Gauge,
+  area: Waves,
+  roads: TrafficCone,
+  images: Satellite,
+  confidence: ShieldCheck,
 }
+// Short questions, shown as compact chips above the longer ones.
+const SHORT_IDS = new Set(['severity', 'area', 'roads', 'images', 'confidence'])
+// Questions the assistant must decline, shown so users can see it refuse instead of guessing.
+const DECLINE_IDS = new Set(['deaths', 'fabricate'])
 
 const uid = () => Math.random().toString(36).slice(2, 9)
 const SCENE_ID = /^S[12][A-D]_.*(?:COG)?$/
+
+/** A clear, standard voice: for English a US or British voice, preferring the higher-quality
+ *  ones browsers ship (Google, Microsoft natural, Apple Samantha); for Nepali text a Nepali voice,
+ *  else Hindi (same script). */
+function pickVoice(voices: SpeechSynthesisVoice[], devanagari: boolean): SpeechSynthesisVoice | undefined {
+  if (devanagari) return voices.find((v) => v.lang.startsWith('ne')) ?? voices.find((v) => v.lang.startsWith('hi'))
+  const score = (v: SpeechSynthesisVoice) => {
+    const lang = v.lang.replace('_', '-')
+    let n = lang === 'en-US' ? 30 : lang === 'en-GB' ? 25 : lang.startsWith('en') ? 5 : -100
+    if (/google|natural|neural|samantha|daniel|aria|jenny/i.test(v.name)) n += 20
+    if (v.localService) n += 2
+    return n
+  }
+  return [...voices].sort((a, b) => score(b) - score(a)).find((v) => score(v) > 0)
+}
 
 export function AssistantPanel() {
   const app = useApp()
@@ -67,6 +97,16 @@ export function AssistantPanel() {
   // Nepali uses a Nepali voice when installed, else a Hindi one (same Devanagari script).
   const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window
   const [speaking, setSpeaking] = useState<string | null>(null)
+  // Mobile browsers load their voice list lazily; ask for it early so the first answer read aloud
+  // already gets a good voice.
+  useEffect(() => {
+    if (!canSpeak) return
+    const synth = window.speechSynthesis
+    synth.getVoices()
+    const noop = () => undefined
+    synth.addEventListener('voiceschanged', noop)
+    return () => synth.removeEventListener('voiceschanged', noop)
+  }, [canSpeak])
   const stopSpeaking = () => {
     window.speechSynthesis.cancel()
     setSpeaking(null)
@@ -76,9 +116,12 @@ export function AssistantPanel() {
     synth.cancel()
     const plain = text.replace(/[#*_`>|]/g, '').replace(/\[(.*?)\]\(.*?\)/g, '$1')
     const u = new SpeechSynthesisUtterance(plain)
-    const devanagari = /[\u0900-\u097F]/.test(plain)
-    const voices = synth.getVoices()
-    const voice = devanagari ? (voices.find((v) => v.lang.startsWith('ne')) ?? voices.find((v) => v.lang.startsWith('hi'))) : voices.find((v) => v.lang.startsWith('en'))
+    // The language of the answer, not of a place name inside it: an English answer that names
+    // देवीघाट is still read by an English voice.
+    const deva = (plain.match(/[\u0900-\u097F]/g) ?? []).length
+    const latin = (plain.match(/[A-Za-z]/g) ?? []).length
+    const devanagari = deva > latin
+    const voice = pickVoice(synth.getVoices(), devanagari)
     if (voice) u.voice = voice
     u.lang = voice?.lang ?? (devanagari ? 'ne-NP' : 'en-US')
     u.onend = u.onerror = () => setSpeaking(null)
@@ -207,7 +250,7 @@ export function AssistantPanel() {
   if (!app.assistantOpen) return null
 
   return (
-    <aside className='flex w-full shrink-0 flex-col border-l bg-background max-md:absolute max-md:inset-0 max-md:z-30 md:w-[23.75rem]'>
+    <aside className='flex w-full shrink-0 flex-col border-l bg-background max-md:absolute max-md:inset-0 max-md:z-50 md:w-[23.75rem]'>
       <div className='flex items-center gap-2 border-b px-3 py-2.5'>
         <div className='min-w-0 flex-1'>
           <div className='text-sm font-semibold tracking-tight'>Assistant</div>
@@ -235,22 +278,58 @@ export function AssistantPanel() {
         {id && history.length === 0 && (
           <div className='space-y-1'>
             <p className='pb-1 text-[0.6875rem] font-medium text-muted-foreground'>Try asking</p>
+            <div className='flex flex-wrap gap-1.5 pb-1'>
+              {(suggested.data ?? [])
+                .filter((s) => SHORT_IDS.has(s.id))
+                .map((s) => {
+                  const Icon = SUGGESTED_ICONS[s.id] ?? ClipboardList
+                  return (
+                    <button
+                      key={s.id}
+                      type='button'
+                      onClick={() => showSuggested(s)}
+                      className='flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs hover:bg-muted/60'
+                    >
+                      <Icon className='size-3.5 shrink-0 text-muted-foreground' aria-hidden='true' />
+                      {s.question}
+                    </button>
+                  )
+                })}
+            </div>
             <div className='grid grid-cols-2 gap-1.5'>
               {suggested.isLoading && <p className='col-span-2 text-xs text-muted-foreground'>Loading…</p>}
-              {(suggested.data ?? []).map((s) => {
-                const Icon = SUGGESTED_ICONS[s.id] ?? ClipboardList
-                return (
+              {(suggested.data ?? [])
+                .filter((s) => !SHORT_IDS.has(s.id) && !DECLINE_IDS.has(s.id))
+                .map((s) => {
+                  const Icon = SUGGESTED_ICONS[s.id] ?? ClipboardList
+                  return (
+                    <button
+                      key={s.id}
+                      type='button'
+                      onClick={() => showSuggested(s)}
+                      className='flex w-full items-start gap-2 rounded-md border bg-card px-2.5 py-2 text-left text-xs leading-snug hover:bg-muted/60'
+                    >
+                      <Icon className='mt-0.5 size-3.5 shrink-0 text-muted-foreground' aria-hidden='true' />
+                      <span>{s.question}</span>
+                    </button>
+                  )
+                })}
+            </div>
+            <p className='pt-2 pb-1 text-[0.6875rem] font-medium text-muted-foreground'>Questions it should decline</p>
+            <div className='flex flex-wrap gap-1.5'>
+              {(suggested.data ?? [])
+                .filter((s) => DECLINE_IDS.has(s.id))
+                .map((s) => (
                   <button
                     key={s.id}
                     type='button'
                     onClick={() => showSuggested(s)}
-                    className='flex w-full items-start gap-2 rounded-md border bg-card px-2.5 py-2 text-left text-xs leading-snug hover:bg-muted/60'
+                    className='flex items-center gap-1.5 rounded-full border border-dashed bg-card px-2.5 py-1 text-xs hover:bg-muted/60'
                   >
-                    <Icon className='mt-0.5 size-3.5 shrink-0 text-muted-foreground' aria-hidden='true' />
-                    <span>{s.question}</span>
+                    <ShieldX className='size-3.5 shrink-0 text-muted-foreground' aria-hidden='true' />
+                    {s.question}
                   </button>
-                )
-              })}
+                ))}
             </div>
           </div>
         )}
