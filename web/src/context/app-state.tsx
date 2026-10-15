@@ -18,6 +18,7 @@ export const LAYERS = [
   { id: 'failed', label: 'Impassable road links', group: 'Access', color: '#dc2626' },
   { id: 'settlements', label: 'Settlements', group: 'Access', color: '#475569' },
   { id: 'hospitals', label: 'Hospitals and clinics', group: 'Access', color: '#dc2626' },
+  { id: 'helipads', label: 'Possible landing areas', group: 'Access', color: '#059669' },
   { id: 'flowpath', label: 'Flood path', group: 'Flood path', color: '#7c3aed' },
 ] as const
 export type LayerId = (typeof LAYERS)[number]['id']
@@ -28,10 +29,10 @@ const on = (...ids: LayerId[]): Visible =>
 
 /** Layers each view turns on. The user can still change them from the layer menu. */
 export const VIEW_LAYERS: Record<View, Visible> = {
-  overview: on('flood', 'debris', 'unobs', 'bridges', 'failed', 'settlements', 'hospitals'),
+  overview: on('flood', 'debris', 'unobs', 'bridges', 'failed', 'settlements', 'hospitals', 'helipads'),
   flooding: on('flood', 'debris', 'water', 'unobs'),
   damage: on('flood', 'debris', 'buildings', 'roads', 'bridges'),
-  cutoff: on('debris', 'flood', 'failed', 'bridges', 'settlements', 'hospitals'),
+  cutoff: on('debris', 'flood', 'failed', 'bridges', 'settlements', 'hospitals', 'helipads'),
   flowpath: on('flowpath', 'debris', 'flood', 'settlements'),
 }
 
@@ -43,6 +44,8 @@ export type Selection = {
   originLngLat?: [number, number]
   routePath?: [number, number][]
 }
+export type AssistantEntityContext = { id: string; kind: Selection['kind']; coordinates: [number, number] }
+export type AssistantDraft = { question: string; entity?: AssistantEntityContext }
 
 type State = {
   mode: Mode
@@ -69,8 +72,8 @@ type State = {
   fitTo: (bounds: [number, number, number, number]) => void
   assistantOpen: boolean
   setAssistantOpen: (o: boolean) => void
-  assistantDraft: string | null
-  askAssistant: (q: string) => void
+  assistantDraft: AssistantDraft | null
+  askAssistant: (q: string, entity?: AssistantEntityContext) => void
   clearAssistantDraft: () => void
 }
 
@@ -89,7 +92,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [focus, setFocus] = useState<State['focus']>(null)
   const [fit, setFit] = useState<State['fit']>(null)
   const [assistantOpen, setAssistantOpen] = useState(false)
-  const [assistantDraft, setAssistantDraft] = useState<string | null>(null)
+  const [assistantDraft, setAssistantDraft] = useState<AssistantDraft | null>(null)
 
   const value = useMemo<State>(
     () => ({
@@ -134,8 +137,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       assistantOpen,
       setAssistantOpen,
       assistantDraft,
-      askAssistant: (q) => {
-        setAssistantDraft(q)
+      askAssistant: (q, entity) => {
+        setAssistantDraft({ question: q, entity })
         setAssistantOpen(true)
       },
       clearAssistantDraft: () => setAssistantDraft(null),

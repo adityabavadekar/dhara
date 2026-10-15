@@ -72,6 +72,15 @@ export type ScenePreview = {
 }
 
 export type Fact = { key: string; value: string; unit: string; text: string; source: string }
+export type ChatCard = {
+  key: string
+  title: string
+  value: string
+  unit: string
+  detail: string
+  source: string
+  kind: 'metric' | 'limit'
+}
 
 export type Place = {
   id: string
@@ -124,6 +133,11 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const fileUrl = (jobId: string, name: string) => apiUrl(`/api/jobs/${jobId}/files/${name}`)
 
+/** URL of a map layer. The settlements layer is served without per-settlement routes (~95 % of its
+ *  size); `useSettlementRoute` fetches the route of the selected settlement. */
+export const layerUrl = (jobId: string, name: string, path: string) =>
+  fileUrl(jobId, path) + (name === 'settlements' ? '?slim=1' : '')
+
 export type SplitMetrics = {
   f1_flood: number | null
   iou_flood: number | null
@@ -141,6 +155,8 @@ export type ModelRun = {
   splits: { mountain_events?: number[]; counts?: Record<string, number> }
   test: SplitMetrics
   mountain: SplitMetrics
+  /** Water IoU on Sen1Floods11 (test split, held-out Bolivia event); null when not scored. */
+  sen1floods11: { test: number | null; bolivia: number | null } | null
 }
 export type ModelInfo = { deployed: ModelRun | null; runs: ModelRun[] }
 
@@ -182,10 +198,10 @@ export const api = {
   facts: (id: string) => req<Fact[]>(`/api/jobs/${id}/facts`),
   manifest: (id: string) => req<Manifest>(fileUrl(id, 'layers.json')),
   geojson: <T = GeoJSON.FeatureCollection>(id: string, name: string) => req<T>(fileUrl(id, name)),
-  chat: (id: string, message: string, lang: string = 'en') =>
-    req<{ answer: string; lang: string }>(`/api/jobs/${id}/chat`, {
+  chat: (id: string, message: string, lang: string = 'en', entity?: { id: string; kind: string; coordinates: [number, number] }) =>
+    req<{ answer: string; lang: string; provider?: string; cards?: ChatCard[] }>(`/api/jobs/${id}/chat`, {
       method: 'POST',
-      body: JSON.stringify({ message, lang }),
+      body: JSON.stringify({ message, lang, entity }),
     }),
   explainAsset: (
     id: string,
@@ -202,6 +218,49 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ path, step_m }),
     }),
+  // The one-page report shows two map images; the others are not sent.
+  sitrepData: (id: string) => req<SitrepData>(`/api/jobs/${id}/sitrep/data?maps=overview,satellite_pair`),
+  /** Report PDF state per language: ready, building, missing or "failed: …". */
+  /** Suggested questions with answers computed from the job's facts (no language model). */
+  suggested: (id: string, lang: string) =>
+    req<{ id: string; question: string; answer: string; cards: ChatCard[]; provider: string }[]>(
+      `/api/jobs/${id}/assistant/suggested?lang=${lang}`,
+    ),
+  reportStatus: (id: string) => req<Record<'en' | 'ne', string>>(`/api/jobs/${id}/report/status`),
+  reportBuild: (id: string) => req<Record<'en' | 'ne', string>>(`/api/jobs/${id}/report/build`, { method: 'POST' }),
+  /** One settlement's hospital route (JSON-encoded [lon, lat] lists), fetched when it is selected. */
+  settlementRoute: (id: string, osmId: string, at: [number, number]) =>
+    req<Record<string, string | null>>(
+      `/api/jobs/${id}/settlements/route?osm_id=${encodeURIComponent(osmId)}&lon=${at[0]}&lat=${at[1]}`,
+    ),
+}
+
+export type SitrepData = {
+  job_id: string
+  facts: Record<string, string>
+  values: Record<string, unknown>
+  tables: {
+    cut_off?: Array<Record<string, any>>
+    bridges?: Array<Record<string, any>>
+    detours?: Array<Record<string, any>>
+    hospitals?: Array<Record<string, any>>
+    repairs?: Array<Record<string, any>>
+    s1?: Array<Record<string, any>>
+    flowpaths?: Array<Record<string, any>>
+    facilities_hit?: Array<Record<string, any>>
+    [key: string]: Array<Record<string, any>> | undefined
+  }
+  maps: {
+    overview?: string | null
+    zoom?: string | null
+    access?: string | null
+    change?: string | null
+    satellite_pair?: string | null
+    flow?: string[]
+    [key: string]: unknown
+  }
+  /** The images behind the satellite-pair figure (optical when clear enough, else radar). */
+  imagery: { kind: 'optical' | 'radar'; sensor: string; before: string; after: string } | null
 }
 
 

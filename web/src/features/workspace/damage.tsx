@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { GraduationCap, HeartPulse, Landmark } from 'lucide-react'
 import { useApp } from '@/context/app-state'
-import { pct, type useJobData } from '@/lib/job'
+import { score, type useJobData } from '@/lib/job'
 import { Dot, Empty, Figure, List, Note, Row, Section, Stack, StatusBadge, ViewIntro } from './common'
 
 type Data = ReturnType<typeof useJobData>
@@ -88,7 +88,7 @@ export function Damage({ d }: { d: Data }) {
                   </div>
                   {f.hit && (
                     <div className='mt-0.5 pl-5.5 text-[0.6875rem] text-muted-foreground'>
-                      {f.hazard || 'hazard'} · {f.confidence || '—'} confidence · peak probability {pct(f.pMax)}
+                      {f.hazard || 'hazard'} · {f.confidence || '—'} confidence tier · peak model score {score(f.pMax)}
                     </div>
                   )}
                 </Row>
@@ -121,7 +121,7 @@ export function Damage({ d }: { d: Data }) {
                     <StatusBadge status={b.status} className='ml-auto' />
                   </div>
                   <div className='mt-0.5 text-[0.6875rem] text-muted-foreground'>
-                    Chance lost {pct(b.pLost)}
+                    Loss model score {score(b.pLost)}
                     {b.dropDb != null && <> · radar return {b.dropDb >= 0 ? 'fell' : 'rose'} {Math.abs(b.dropDb).toFixed(1)} dB</>}
                     {b.lengthM != null && <> · {Math.round(b.lengthM)} m span</>}
                   </div>
@@ -134,8 +134,8 @@ export function Damage({ d }: { d: Data }) {
               </button>
             )}
             <Note>
-              A standing bridge reflects radar strongly. A fall of about 3 dB or more in that return is the main sign of loss. Flood
-              at both ends alone only makes a bridge "at risk". Spans shorter than two pixels are kept at low confidence.
+              The loss score is heuristic and has not been calibrated as a probability. A strong radar-return drop is the main
+              loss signal; flood at both ends alone marks a bridge "at risk". Very short spans carry low confidence.
             </Note>
           </>
         )}

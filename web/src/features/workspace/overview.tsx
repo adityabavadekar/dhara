@@ -1,60 +1,21 @@
-import { ArrowRight, Download, FileText } from 'lucide-react'
-import { useApp, type View } from '@/context/app-state'
+import { useState } from 'react'
+import {
+  ArrowRight,
+  Building2,
+  ChevronDown,
+  ChevronUp,
+  Download,
+  MapPin,
+  Waves,
+} from 'lucide-react'
+import { useApp } from '@/context/app-state'
 import { apiUrl } from '@/lib/api'
 import { STATUS_COLOR, type useJobData } from '@/lib/job'
 import { Button } from '@/components/ui/button'
+import { PdfButton } from '@/features/report/pdf-button'
 import { Dot, List, Note, Row, Section, Stack, StatusBadge } from './common'
 
 type Data = ReturnType<typeof useJobData>
-
-function Tile({
-  tag,
-  view,
-  label,
-  value,
-  unit,
-  of,
-  tone,
-  sub,
-  bar,
-}: {
-  tag: string
-  view: View
-  label: string
-  value: string | null
-  unit?: string
-  of?: string | null
-  tone?: string
-  sub: string
-  bar?: { value: number; color: string; label: string }[]
-}) {
-  const app = useApp()
-  return (
-    <button
-      type='button'
-      onClick={() => app.setView(view)}
-      className='group min-w-0 border-b border-r p-3 text-left transition-colors even:border-r-0 hover:bg-muted/40 [&:nth-child(n+3)]:border-b-0'
-    >
-      <div className='flex items-center justify-between gap-1'>
-        <span className='truncate text-xs font-medium text-foreground/80'>{label}</span>
-        <span className='flex shrink-0 items-center gap-0.5 text-[0.625rem] font-semibold text-muted-foreground uppercase group-hover:text-foreground'>
-          {tag} <ArrowRight className='size-3' />
-        </span>
-      </div>
-      <div className='mt-1 flex items-baseline gap-1'>
-        <span className={`text-2xl font-semibold tabular-nums tracking-tight ${tone ?? ''}`}>{value ?? '—'}</span>
-        {unit && value != null && <span className='text-sm text-muted-foreground'>{unit}</span>}
-        {of && <span className='text-sm text-muted-foreground'>of {of}</span>}
-      </div>
-      {bar && (
-        <div className='mt-1.5'>
-          <Stack parts={bar} />
-        </div>
-      )}
-      <div className='mt-1 text-xs leading-snug text-foreground/70'>{sub}</div>
-    </button>
-  )
-}
 
 function Mini({ label, value, sub }: { label: string; value: string | null; sub?: string }) {
   return (
@@ -75,72 +36,184 @@ export function Overview({ d }: { d: Data }) {
   const urgent = d.settlements.filter((s) => s.status === 'cut_off' || s.status === 'hospital_cut_off')
   const topRepair = d.repairs[0]
   const lost = d.bridges.filter((b) => b.status === 'likely_lost')
+  const change = d.change
+  const openWaterDelta = change ? change.water_after_km2 - change.water_before_km2 : null
+  const openWaterPct = change && change.water_before_km2 > 0 ? Math.round((openWaterDelta! / change.water_before_km2) * 100) : null
+  const riverWidthDelta =
+    change?.width_before_median_m != null && change.width_after_median_m != null
+      ? change.width_after_median_m - change.width_before_median_m
+      : null
+  const [signalOpen, setSignalOpen] = useState(false)
+
+  // Severity and its one-line reason come from the facts the report uses, so both always agree.
+  const level = (t('verdict_level') ?? '').toUpperCase()
+  const hazardKm2 = (n('area_debris_km2') ?? 0) + (n('area_flood_km2') ?? 0)
+  const badgeColor =
+    level === 'SEVERE'
+      ? 'bg-red-600 text-white'
+      : level === 'HIGH'
+        ? 'bg-orange-600 text-white'
+        : level === 'MODERATE'
+          ? 'bg-amber-500 text-white'
+          : 'bg-emerald-600 text-white'
 
   return (
-    <div className='space-y-5 p-3'>
-      <div className='overflow-hidden rounded-lg border bg-card'>
-        <div className='grid grid-cols-2'>
-          <Tile
-            tag='Access'
-            view='cutoff'
-            label='No road out'
-            value={t('settlements_cut_off')}
-            of={t('settlements_total')}
-            tone={(n('settlements_cut_off') ?? 0) > 0 ? 'text-red-700 dark:text-red-400' : ''}
-            sub={`communities · ${t('settlements_hospital_cut_off') ?? '—'} others can't reach a hospital`}
-          />
-          <Tile
-            tag='Access'
-            view='cutoff'
-            label='Nearby buildings'
-            value={t('buildings_in_cut_off')}
-            sub={`within ${t('exposure_radius_m') ?? '—'} m · no population data`}
-          />
-          <Tile
-            tag='Ground'
-            view='flooding'
-            label='Debris and water'
-            value={t('area_debris_km2')}
-            unit='km²'
-            sub={`debris and scour · ${t('area_flood_km2') ?? '—'} km² new water`}
-            bar={[
-              { value: n('area_debris_km2') ?? 0, color: '#c27803', label: 'Debris' },
-              { value: n('area_flood_km2') ?? 0, color: '#2563eb', label: 'New water' },
-            ]}
-          />
-          <Tile
-            tag='Assets'
-            view='damage'
-            label='Buildings touched'
-            value={t('buildings_hit')}
-            of={t('buildings_total')}
-            tone='text-amber-700 dark:text-amber-400'
-            sub='overlap mapped debris or water'
-          />
-        </div>
+    <div className='space-y-2 p-3'>
+      {/* Severity */}
+      <div className='overflow-hidden rounded-lg bg-card shadow-xs'>
         <button
           type='button'
-          onClick={() => app.setView('damage')}
-          className='grid w-full grid-cols-3 gap-2 border-t px-3 py-2.5 text-left hover:bg-muted/40'
+          onClick={() => setSignalOpen(!signalOpen)}
+          className='flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/30'
+          aria-expanded={signalOpen}
         >
-          <Mini label='Impassable road' value={t('network_failed_km') != null ? `${t('network_failed_km')} km` : null} />
-          <Mini
-            label='Bridges washed out'
-            value={t('bridges_lost')}
-            sub={(n('bridges_at_risk') ?? 0) > 0 ? `+${t('bridges_at_risk')} unsure` : undefined}
-          />
-          <Mini label='Clinics isolated' value={t('hospitals_isolated')} sub={t('hospitals_total') ? `of ${t('hospitals_total')}` : undefined} />
+          <span className='text-xs font-semibold tracking-wider text-muted-foreground uppercase'>Severity</span>
+          <div className='flex items-center gap-1.5'>
+            {level && <span className={`shrink-0 rounded px-2 py-0.5 text-[0.625rem] font-bold tracking-wider uppercase ${badgeColor}`}>{level}</span>}
+            {signalOpen ? <ChevronUp className='size-3.5 text-muted-foreground' /> : <ChevronDown className='size-3.5 text-muted-foreground' />}
+          </div>
         </button>
-        <div className='border-t bg-muted/30 px-3 py-2 text-xs leading-relaxed text-foreground/80'>
-          {(n('area_not_observable_km2') ?? 0) >= 0.01 ? (
-            <>
-              <b>{t('area_not_observable_km2')} km²</b> of the {t('aoi_area_km2') ?? '—'} km² area was out of the radar's view: unknown,
-              not safe.{' '}
-            </>
-          ) : (
-            <>The radar saw the whole {t('aoi_area_km2') ?? '—'} km² area. </>
+        {t('verdict_headline') && <p className='border-t px-3 py-2 text-xs leading-snug text-foreground/85'>{t('verdict_headline')}</p>}
+        {signalOpen && (
+          <div className='space-y-2 border-t bg-muted/20 px-3 py-2.5 text-xs'>
+            <div>
+              <div className='font-semibold text-foreground/90'>Mapped area by confidence</div>
+              <div className='mt-1 leading-relaxed text-muted-foreground'>
+                High <b className='font-semibold text-foreground'>{t('area_tier_high_km2') ?? '—'} km²</b> · Moderate{' '}
+                <b className='font-semibold text-foreground'>{t('area_tier_moderate_km2') ?? '—'} km²</b> · Low{' '}
+                <b className='font-semibold text-foreground'>{t('area_tier_low_km2') ?? '—'} km²</b>
+              </div>
+              <div className='mt-1 text-[0.6875rem] leading-snug text-muted-foreground/80'>
+                Severity counts only high-confidence change (two or more independent signals agree).
+              </div>
+            </div>
+            <div className='text-[0.6875rem] leading-snug text-muted-foreground/80'>
+              People displaced: <i>not measured</i> (no population data is used; buildings hit is the closest proxy).
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className='space-y-2'>
+        {/* 1. Where did the flood hit? */}
+        <div className='rounded-lg bg-amber-500/[0.04] p-3 shadow-xs dark:bg-amber-950/20'>
+          <div className='flex items-center gap-2 pb-2.5 text-xs font-semibold text-amber-800 dark:text-amber-300'>
+            <Waves className='size-3.5 text-amber-600' />
+            <span>Where did the flood hit?</span>
+          </div>
+          <button
+            type='button'
+            onClick={() => app.setView('flooding')}
+            className='w-full rounded-md border border-amber-500/25 bg-background/90 p-2.5 text-left transition-colors hover:border-amber-500/50 hover:bg-background'
+          >
+            <div className='flex items-baseline justify-between'>
+              <span className='text-[0.6875rem] font-medium text-foreground/80'>Mapped flood and debris</span>
+              <span className='text-xs text-muted-foreground'>of {t('aoi_area_km2') ?? '—'} km²</span>
+            </div>
+            <div className='mt-1 flex items-baseline gap-1.5'>
+              <span className='text-2xl font-bold tabular-nums text-foreground'>{hazardKm2.toLocaleString('en', { maximumFractionDigits: 2 })}</span>
+              <span className='text-sm text-muted-foreground'>
+                km² · {t('area_debris_km2') ?? '—'} debris and scour, {t('area_flood_km2') ?? '—'} new water
+              </span>
+            </div>
+            <div className='mt-2'>
+              <Stack
+                parts={[
+                  { value: n('area_debris_km2') ?? 0, color: '#c27803', label: 'Debris' },
+                  { value: n('area_flood_km2') ?? 0, color: '#2563eb', label: 'New water' },
+                ]}
+              />
+            </div>
+            <div className='mt-1.5 text-[0.6875rem] text-muted-foreground'>
+              {(n('area_not_observable_km2') ?? 0) >= 0.01 ? (
+                <>
+                  {t('area_not_observable_km2')} km² hidden from the radar by terrain: <b className='font-semibold'>unknown, not safe</b>.
+                </>
+              ) : (
+                <>The radar saw the whole area.</>
+              )}
+            </div>
+          </button>
+          {change && (
+            <div className='mt-2 space-y-1 rounded-md border border-amber-500/20 bg-amber-500/[0.06] p-2 text-[0.6875rem] text-muted-foreground'>
+              <div className='space-y-0.5'>
+                {riverWidthDelta != null && riverWidthDelta > 0 && (
+                  <div>
+                    • River widened by <b className='font-semibold text-foreground'>+{riverWidthDelta} m</b> ({change.width_before_median_m} m → {change.width_after_median_m} m)
+                  </div>
+                )}
+                {openWaterDelta != null && openWaterDelta > 0 && (
+                  <div>
+                    • Open water <b className='font-semibold text-foreground'>+{openWaterPct}%</b> ({change.water_before_km2.toFixed(2)} → {change.water_after_km2.toFixed(2)} km²)
+                  </div>
+                )}
+                {change.shift_max_m != null && change.shift_max_m > 0 && (
+                  <div>
+                    • River moved sideways up to <b className='font-semibold text-foreground'>{change.shift_max_m} m</b> (median {change.shift_median_m ?? 0} m)
+                  </div>
+                )}
+              </div>
+              {change.clear_both_pct != null && (
+                <div className='border-t border-amber-500/15 pt-1 text-[0.625rem] text-muted-foreground/80'>
+                  Measured on the {change.clear_both_pct.toFixed(1)}% of the area clear in both optical images
+                </div>
+              )}
+            </div>
           )}
-          These are lower bounds: places with nothing mapped may still be affected.
+        </div>
+
+        {/* 2. What was damaged? */}
+        <div className='rounded-lg bg-orange-500/[0.04] p-3 shadow-xs dark:bg-orange-950/20'>
+          <div className='flex items-center gap-2 pb-2.5 text-xs font-semibold text-orange-800 dark:text-orange-300'>
+            <Building2 className='size-3.5 text-orange-600' />
+            <span>What was damaged?</span>
+          </div>
+          <button
+            type='button'
+            onClick={() => app.setView('damage')}
+            className='grid w-full grid-cols-3 gap-2 rounded-md border border-orange-500/25 bg-background/90 p-2.5 text-left transition-colors hover:border-orange-500/50 hover:bg-background'
+          >
+            <Mini label='Buildings hit' value={t('buildings_hit')} sub={t('buildings_total') ? `of ${t('buildings_total')}` : undefined} />
+            <Mini label='Impassable road' value={t('network_failed_km') != null ? `${t('network_failed_km')} km` : null} />
+            <Mini label='Bridges lost' value={t('bridges_lost')} sub={(n('bridges_at_risk') ?? 0) > 0 ? `+${t('bridges_at_risk')} at risk` : undefined} />
+          </button>
+        </div>
+
+        {/* 3. Who is cut off? */}
+        <div className='rounded-lg bg-red-500/[0.04] p-3 shadow-xs dark:bg-red-950/20'>
+          <div className='flex items-center gap-2 pb-2.5 text-xs font-semibold text-red-800 dark:text-red-300'>
+            <MapPin className='size-3.5 text-red-600' />
+            <span>Who is cut off?</span>
+          </div>
+          <div className='grid grid-cols-2 gap-2'>
+            <button
+              type='button'
+              onClick={() => app.setView('cutoff')}
+              className='group rounded-md border border-red-500/25 bg-background/90 p-2.5 text-left transition-colors hover:border-red-500/50 hover:bg-background'
+            >
+              <div className='flex items-center justify-between text-[0.6875rem] font-medium text-foreground/80'>
+                <span>No road out</span>
+                <ArrowRight className='size-3 text-muted-foreground transition-transform group-hover:translate-x-0.5' />
+              </div>
+              <div className='mt-1 text-2xl font-bold tabular-nums text-red-700 dark:text-red-400'>
+                {t('settlements_cut_off')}
+                <span className='ml-1 text-xs font-normal text-muted-foreground'>of {t('settlements_total')}</span>
+              </div>
+              <div className='mt-0.5 text-[0.6875rem] text-muted-foreground'>communities · {t('settlements_hospital_cut_off') ?? '—'} more without a hospital</div>
+            </button>
+            <button
+              type='button'
+              onClick={() => app.setView('cutoff')}
+              className='group rounded-md border border-red-500/25 bg-background/90 p-2.5 text-left transition-colors hover:border-red-500/50 hover:bg-background'
+            >
+              <div className='flex items-center justify-between text-[0.6875rem] font-medium text-foreground/80'>
+                <span>Buildings nearby</span>
+                <ArrowRight className='size-3 text-muted-foreground transition-transform group-hover:translate-x-0.5' />
+              </div>
+              <div className='mt-1 text-2xl font-bold tabular-nums text-foreground'>{t('buildings_in_cut_off')}</div>
+              <div className='mt-0.5 text-[0.6875rem] text-muted-foreground'>within {t('exposure_radius_m') ?? '—'} m · no population data</div>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -162,7 +235,7 @@ export function Overview({ d }: { d: Data }) {
                   <span className='truncate font-medium'>{s.name}</span>
                   <StatusBadge status={s.status} />
                 </div>
-                <div className='mt-0.5 text-[0.6875rem] text-muted-foreground'>{s.buildings} buildings within 500 m</div>
+                <div className='mt-0.5 text-[0.6875rem] text-muted-foreground'>{s.buildings} buildings within {t('exposure_radius_m') ?? '—'} m</div>
               </Row>
             ))}
             {topRepair && (
@@ -171,6 +244,10 @@ export function Overview({ d }: { d: Data }) {
                   app.setView('cutoff')
                   const b = d.bridges.find((x) => x.id === topRepair.osmId)
                   if (b) app.select({ kind: 'bridge', props: b.raw, lngLat: b.at }, 15)
+                  else {
+                    const road = d.roadFeatures.find((x) => String(x.raw.osm_id) === topRepair.osmId)
+                    if (road) app.select({ kind: 'road', props: road.raw, lngLat: road.at }, 15)
+                  }
                 }}
               >
                 <div className='flex items-center gap-2'>
@@ -228,11 +305,7 @@ export function Overview({ d }: { d: Data }) {
 
       <Section title='Export'>
         <div className='grid grid-cols-2 gap-1.5'>
-          <Button asChild variant='outline' size='sm' className='h-8 justify-start text-xs'>
-            <a href={apiUrl(`/api/jobs/${id}/files/sitrep_en.pdf`)} target='_blank' rel='noreferrer'>
-              <FileText className='size-3.5' /> Situation report
-            </a>
-          </Button>
+          <PdfButton jobId={id} lang='en' label='Situation report (PDF)' />
           <Button asChild variant='outline' size='sm' className='h-8 justify-start text-xs'>
             <a href={apiUrl(`/api/jobs/${id}/download.zip`)}>
               <Download className='size-3.5' /> GeoJSON bundle

@@ -55,8 +55,9 @@ export function Flooding({ d }: { d: Data }) {
         question='Where did the flood hit?'
         answer={
           <>
-            Radar change between the before and after images marks <b>{t('area_debris_km2') ?? '—'} km²</b> of debris and scour
-            and <b>{t('area_flood_km2') ?? '—'} km²</b> of new water. Click a row to show or hide it on the map.
+            The analysis maps <b>{t('area_flood_km2') ?? '—'} km²</b> as new-water change and <b>{t('area_debris_km2') ?? '—'} km²</b> as debris and scour.
+            It compares Sentinel-1 scenes from before ({t('s1_pre_dates') ?? 'unknown'}) and after ({t('s1_post_dates') ?? 'unknown'}) the event date.
+            This is evidence consistent with flooding, not confirmation of an incident or its exact onset. Click a row to show or hide it on the map.
           </>
         }
       />
@@ -94,8 +95,8 @@ export function Flooding({ d }: { d: Data }) {
             ))}
           </div>
           <p className='mt-2 text-[0.6875rem] leading-relaxed text-muted-foreground'>
-            High means probability at least 0.8 and two or more methods agree. Moderate means probability at least 0.65 or
-            two methods agree. Low is a lead to check, not a finding.
+            These are heuristic evidence tiers, not calibrated probabilities. High combines a strong model score with agreement
+            from at least two methods; moderate reflects a lower score or method agreement. Low is a lead to check, not a finding.
           </p>
         </div>
       </Section>

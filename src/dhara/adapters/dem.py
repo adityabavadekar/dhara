@@ -43,15 +43,8 @@ def tiles_for_bounds(bounds: tuple[float, float, float, float]) -> list[str]:
 
 
 def _route() -> tuple[str, dict]:
-    s = get_settings()
-    if s.cdse_s3_access_key and s.cdse_s3_secret_key:
-        return CDSE_S3, {
-            "AWS_S3_ENDPOINT": "eodata.dataspace.copernicus.eu",
-            "AWS_ACCESS_KEY_ID": s.cdse_s3_access_key.get_secret_value(),
-            "AWS_SECRET_ACCESS_KEY": s.cdse_s3_secret_key.get_secret_value(),
-            "AWS_VIRTUAL_HOSTING": "FALSE",
-            "AWS_HTTPS": "YES",
-        }
+    # The official open GLO-30 COG distribution. CDSE S3 keys are not used here: they are refused
+    # (AccessDenied) for the CopDEM_COG prefix, while the open mirror needs no credentials.
     return MIRROR, {"AWS_NO_SIGN_REQUEST": "YES"}
 
 
@@ -83,9 +76,15 @@ def _local_tile(base: str, env: dict, name: str) -> Path | None:
             with Env(**gdal_env, **env), guarded_raster_open(f"{base}/{name}/{name}.tif") as ds:
                 data = ds.read(1)
                 profile = ds.profile | {"driver": "GTiff", "compress": "deflate", "tiled": True}
-        except RasterioIOError:
-            missing.touch()  # ocean tiles do not exist
-            return None
+        except RasterioIOError as e:
+            msg = str(e).lower()
+            if "does not exist" in msg or "no such file" in msg or "404" in msg:
+                missing.touch()  # ocean tiles do not exist
+                return None
+            raise RuntimeError(
+                f"Could not read Copernicus DEM tile {name} ({e}); elevation is required, so the "
+                "job stops instead of running without it. Check the network and retry."
+            ) from e
         tmp = path.with_suffix(".part")
         with rasterio.open(tmp, "w", **profile) as dst:
             dst.write(data, 1)

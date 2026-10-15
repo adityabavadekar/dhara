@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react'
+import { pinyin } from 'pinyin-pro'
+import Sanscript from '@indic-transliteration/sanscript'
 import { ArrowLeft, ArrowRight, Bot, Copy, MapPin, Waves, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useApp } from '@/context/app-state'
-import { distanceKm, fmtHours, fmtKm, inRing, jobAoiRing, num, parseBridge, parseHospital, parseSettlement, pct, str, useJobData } from '@/lib/job'
+import { distanceKm, fmtHours, fmtKm, inRing, jobAoiRing, num, parseBridge, parseHospital, parseSettlement, pct, score, str, useJobData, useSettlementRoute } from '@/lib/job'
 import { GMapsLink } from '@/components/gmaps-link'
 import { ElevationProfile } from '@/components/elevation-profile'
 import { Button } from '@/components/ui/button'
@@ -30,9 +32,17 @@ export function SelectionCard() {
   const app = useApp()
   const d = useJobData(app.jobId)
   const s = app.selection
+  const withRoute = useSettlementRoute(app.jobId, s)
   if (!s) return null
   const [lon, lat] = s.lngLat
-  const p = s.props
+  const p = withRoute ?? s.props
+  const settlementName = s.kind === 'settlement' ? parseSettlement(p, s.lngLat).name : ''
+  const pinyinName = settlementName && /\p{Script=Han}/u.test(settlementName)
+    ? pinyin(settlementName, { toneType: 'symbol' })
+    : ''
+  const devanagariName = settlementName && /\p{Script=Devanagari}/u.test(settlementName)
+    ? Sanscript.t(settlementName, 'devanagari', 'iast').replace(/~/g, '\u0303')
+    : ''
 
   const traceFrom = () => {
     app.setFlowPoint([+lon.toFixed(5), +lat.toFixed(5)])
@@ -85,8 +95,8 @@ export function SelectionCard() {
     body = (
       <>
         <p className='mb-1.5 leading-snug text-foreground/85'>{MEANS[x.status] ?? ''}</p>
-        <Line k='Buildings within 500 m' v={x.buildings} />
-        {x.pCutOff != null && x.pathBefore.length > 0 && <Line k='Chance of no road out at all' v={pct(x.pCutOff)} />}
+        <Line k={`Buildings within ${d.facts.t('exposure_radius_m') ?? '—'} m`} v={x.buildings} />
+        {x.pCutOff != null && x.pathBefore.length > 0 && <Line k='Cut-off frequency in simulations' v={pct(x.pCutOff)} />}
         {x.hospital && x.pathBefore.length > 0 && (
           <div className='flex items-center justify-between gap-2 py-0.5'>
             <span className='text-muted-foreground'>Hospital by road</span>
@@ -171,8 +181,8 @@ export function SelectionCard() {
     ask = `What is the evidence that bridge ${b.name || b.id} is ${b.status.replaceAll('_', ' ')}?`
     body = (
       <>
-        <Line k='Chance lost' v={pct(b.pLost)} />
-        <Line k='Flood or debris at both ends' v={pct(num(p.p_hazard))} />
+        <Line k='Loss model score' v={score(b.pLost)} />
+        <Line k='Flood or debris score at both ends' v={score(num(p.p_hazard))} />
         {b.dropDb != null && <Line k='Radar return' v={`${b.dropDb >= 0 ? 'fell' : 'rose'} ${Math.abs(b.dropDb).toFixed(1)} dB`} />}
         {b.lengthM != null && <Line k='Span' v={`${Math.round(b.lengthM)} m${str(p.below_resolution) === 'True' ? ' (below grid size)' : ''}`} />}
         <Line k='Confidence' v={b.confidence || '—'} />
@@ -245,7 +255,7 @@ export function SelectionCard() {
     body = (
       <>
         {hit && <Line k='Hazard' v={str(p.hazard) || '—'} />}
-        <Line k='Peak probability' v={pct(num(p.p_max))} />
+        <Line k='Peak model score' v={score(num(p.p_max))} />
         <Line k='Share of footprint in hazard' v={pct(num(p.frac_hit))} />
         <Line k='Confidence' v={str(p.confidence) || '—'} />
       </>
@@ -319,6 +329,8 @@ export function SelectionCard() {
         <div className='min-w-0 flex-1'>
           <div className='truncate text-[0.6875rem] text-muted-foreground capitalize'>{kicker}</div>
           <div className='truncate text-sm font-semibold'>{title}</div>
+          {pinyinName && <div className='truncate text-[0.6875rem] text-muted-foreground'>Pinyin · {pinyinName}</div>}
+          {devanagariName && <div className='[overflow-wrap:anywhere] text-[0.6875rem] leading-snug text-muted-foreground'>Latin transliteration · {devanagariName}</div>}
         </div>
         {badge && <StatusBadge status={badge} className='mt-0.5' />}
         <GMapsLink at={s.lngLat} className='-mt-0.5' />
@@ -329,7 +341,12 @@ export function SelectionCard() {
       {body && <div className='px-3 py-2 text-xs'>{body}</div>}
       <div className='flex flex-wrap items-center gap-1 border-t px-2 py-1.5'>
         {ask && app.jobId && (
-          <Button variant='ghost' size='sm' className='h-7 gap-1.5 px-2 text-xs' onClick={() => app.askAssistant(ask!)}>
+          <Button
+            variant='ghost'
+            size='sm'
+            className='h-7 gap-1.5 px-2 text-xs'
+            onClick={() => app.askAssistant(ask!, { id: str(p.osm_id), kind: s.kind, coordinates: s.lngLat })}
+          >
             <Bot className='size-3.5' /> Ask
           </Button>
         )}

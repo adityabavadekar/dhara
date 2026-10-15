@@ -23,6 +23,17 @@ def _no_llm(monkeypatch):
     get_settings.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def _no_language_model(monkeypatch):
+    """Deterministic answers: the template path only, no network call to a model provider."""
+    from dhara.config import get_settings
+
+    monkeypatch.setenv("ASSISTANT_LLM", "off")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 @pytest.fixture
 def sample_job_dir():
     d = Path("data/jobs/1ca3bdd9fba8")
@@ -67,6 +78,13 @@ def test_gis_tools_execution(sample_job_dir):
     )
     assert near["status"] == "success"
     assert "nearest" in near
+
+
+def test_gis_tool_reports_full_status_counts_when_examples_are_limited(sample_job_dir):
+    result = _execute_gis_tool(sample_job_dir, "query_settlements", {"status": "all", "limit": 2})
+    assert result["count"] > result["returned_count"] == 2
+    assert result["truncated"] is True
+    assert sum(result["status_counts"].values()) == result["count"]
 
 
 def test_off_topic_detector():
@@ -120,7 +138,8 @@ def test_model_answers_with_unbacked_numbers_are_rejected():
     from dhara.assistant.service import _unbacked_numbers
 
     backing = '{"buildings_hit": "279", "network_failed_km": "7.8"}'
-    assert _unbacked_numbers("279 buildings, 7.8 km of road, 3 bridges", backing) == []
+    assert _unbacked_numbers("279 buildings, 7.8 km of road, 3 bridges", backing) == ["3"]
+    assert _unbacked_numbers("1. Check access\n2. Check bridges\n3. Check hospitals", backing) == []
     assert _unbacked_numbers("about 1,200 people are affected", backing) == ["1200"]
 
 
@@ -141,6 +160,23 @@ def test_people_questions_never_turn_buildings_into_people(sample_job_dir):
     res = ask_assistant(sample_job_dir, "how many citizens are at risk")
     assert "population is not an input" in res["answer"].lower()
     assert "citizens" not in res["answer"].lower()
+
+
+def test_radar_shadow_is_unknown_not_an_off_topic_question(sample_job_dir):
+    res = ask_assistant(sample_job_dir, "Areas hidden by radar shadow have no damage, correct?")
+    assert res["provider"] == "dhara_verified_ledger"
+    assert "unknown" in res["answer"].lower()
+    assert "cannot say" in res["answer"].lower()
+
+
+def test_assistant_does_not_recommend_ambulance_or_helicopter_routes(sample_job_dir):
+    res = ask_assistant(
+        sample_job_dir,
+        "Which settlement needs immediate helicopter extraction, and which road should ambulances use?",
+    )
+    assert res["provider"] == "dhara_verified_ledger"
+    assert "cannot identify a safe ambulance route" in res["answer"].lower()
+    assert "helicopter priority" in res["answer"].lower()
 
 
 def test_bare_number_replies_get_their_label():
@@ -166,3 +202,64 @@ def test_unmeasured_things_get_a_clear_no(sample_job_dir, question, phrase):
     res = ask_assistant(sample_job_dir, question)
     assert phrase in res["answer"].lower()
     assert "not observable" not in res["answer"].lower()
+
+
+def test_situation_report_request_gets_a_facts_only_brief(tmp_path):
+    import json
+
+    from dhara.assistant.service import _sitrep_brief
+
+    ctx = {
+        "kpis": {
+            k: {"text": v}
+            for k, v in {
+                "target_location": "Syabrubesi",
+                "verdict_level": "HIGH",
+                "verdict_headline": "26 buildings in high-confidence damage",
+                "verdict_headline_ne": "26 भवन",
+                "area_debris_km2": "1.20",
+                "area_flood_km2": "0.10",
+                "aoi_area_km2": "27.2",
+                "area_not_observable_km2": "0.05",
+                "buildings_hit": "26",
+                "network_failed_km": "0.3",
+                "bridges_lost": "1",
+                "settlements_cut_off": "2",
+                "settlements_hospital_cut_off": "3",
+            }.items()
+        }
+    }
+    en = _sitrep_brief("Write a short situation report for rescue teams", ctx, "en")
+    assert en and "Severity:** HIGH" in en and "1.20 km²" in en and "Who is cut off?" in en
+    ne = _sitrep_brief("छोटो स्थिति प्रतिवेदन", ctx, "ne")
+    assert ne and "उच्च" in ne and "26 भवन" in ne
+    assert _sitrep_brief("Which bridges are lost?", ctx, "en") is None
+    json.dumps(en)
+
+
+def test_capabilities_and_river_counts_are_fixed_answers():
+    from dhara.assistant.service import _capabilities, _rivers
+
+    en = _capabilities("What can you do?", "en")
+    assert en and "this analysis only" in en and "surveyed" not in en
+    assert _capabilities("तपाईं के गर्न सक्नुहुन्छ?", "ne")
+    assert _capabilities("Which bridges are lost?", "en") is None
+    r = _rivers("How many rivers does this area have?", "en")
+    assert r and r.startswith("Not counted")
+    assert _rivers("Is the river bridge at Betrawati lost?", "en") is None
+
+
+def test_verified_answers_persist_on_disk(tmp_path):
+    from dhara.assistant import service
+
+    job = tmp_path / "jobx"
+    job.mkdir()
+    key = service._chat_cache_key("jobx", "How many bridges?", "en", None)
+    service._cache_chat_answer(key, "8 bridges", "grounded_agent", job)
+    service._CHAT_RESPONSE_CACHE.clear()  # as after a server restart
+    assert service._get_cached_chat_answer(key, job) == ("8 bridges", "grounded_agent")
+    # A failed model turn is never kept.
+    bad = service._chat_cache_key("jobx", "Other?", "en", None)
+    service._cache_chat_answer(bad, "x", "assistant_unavailable", job)
+    service._CHAT_RESPONSE_CACHE.clear()
+    assert service._get_cached_chat_answer(bad, job) is None

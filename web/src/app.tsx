@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Bot, Moon, PanelLeftClose, PanelLeftOpen, Plus, Sun } from 'lucide-react'
+import { Bot, FileText, Moon, PanelLeftClose, PanelLeftOpen, Plus, Sun } from 'lucide-react'
 import { useApp } from '@/context/app-state'
 import { useTheme } from '@/context/theme-provider'
 import { api, type Polygon } from '@/lib/api'
+import { useJob } from '@/lib/job'
+import { navigate } from '@/lib/nav'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { NewAnalysis } from '@/features/analyze/new-analysis'
@@ -12,6 +14,7 @@ import { AssistantPanel } from '@/features/assistant/assistant-panel'
 import { MapView } from '@/features/map/map-view'
 import { AboutDialog } from '@/features/report/about-dialog'
 import { ReportDialog } from '@/features/report/report-dialog'
+import { ReportPage } from '@/features/report/report-page'
 import { Workspace } from '@/features/workspace/workspace'
 import { cn } from '@/lib/utils'
 
@@ -30,15 +33,41 @@ export function App() {
   const [panelOpen, setPanelOpen] = useState(true)
   const jobs = useQuery({ queryKey: ['jobs'], queryFn: api.jobs })
   const opened = useRef(false)
+  const current = useJob(app.jobId)
+  const reportJobId = current.data?.status === 'done' && current.data.kind === 'analysis' ? app.jobId : null
+
+  const [path, setPath] = useState(() => window.location.pathname)
+
+  useEffect(() => {
+    const onPop = () => setPath(window.location.pathname)
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+
 
   // Open the latest finished analysis on first load, so the page starts with an answer.
   useEffect(() => {
     if (opened.current || app.jobId || !jobs.data) return
     opened.current = true
-    const latest = jobs.data.find((j) => j.kind === 'analysis' && j.status === 'done')
+    // ?job=<id> opens that analysis (links from reports and PDFs); otherwise the latest one.
+    const wanted = new URLSearchParams(window.location.search).get('job')
+    const latest =
+      jobs.data.find((j) => j.id === wanted && j.status === 'done') ?? jobs.data.find((j) => j.kind === 'analysis' && j.status === 'done')
     if (latest) app.openJob(latest.id, (latest.request.aoi as Polygon) ?? null)
     else app.setMode('new')
   }, [jobs.data, app])
+
+  // Old links to the report's former address.
+  useEffect(() => {
+    if (path.startsWith('/labs/reports')) {
+      window.history.replaceState({}, '', `/report${window.location.search}`)
+      setPath('/report')
+    }
+  }, [path])
+
+  if (path === '/report' || path.startsWith('/labs/reports')) {
+    return <ReportPage onBack={() => navigate('/')} />
+  }
 
   return (
     <div className='flex h-svh w-screen flex-col overflow-hidden bg-background'>
@@ -71,8 +100,14 @@ export function App() {
         </Button>
 
         <div className='ml-auto flex shrink-0 items-center gap-0.5'>
-          <span className='mr-2 hidden text-[0.6875rem] text-muted-foreground lg:inline'>Educational prototype · not operational</span>
-          <ReportDialog />
+          <ReportDialog
+            jobId={reportJobId}
+            trigger={
+              <Button variant='ghost' size='sm' className='h-8 gap-1.5 px-2.5 text-xs' disabled={!reportJobId} aria-label='Situation report'>
+                <FileText className='size-3.5' /> <span className='hidden md:inline'>Report</span>
+              </Button>
+            }
+          />
           <Button
             variant={app.assistantOpen ? 'secondary' : 'ghost'}
             size='sm'

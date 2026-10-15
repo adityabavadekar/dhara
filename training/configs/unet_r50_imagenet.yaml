@@ -1,0 +1,45 @@
+# UNet-ResNet50 with an ImageNet encoder (allowed: organizer answer, 2026-10-13) on Kuro Siwo GRD
+# triplets (post, pre1, pre2; VV+VH in dB). Scored on the Kuro Siwo test events, a held-out
+# high-relief "mountain" fold and Sen1Floods11 (training/eval_sen1floods11.py).
+dataset: kurosiwo            # allowed training data only (Kuro Siwo / Sen1Floods11)
+data_dir: /tmp/ks_full
+out_dir: /tmp/runs              # not /kaggle/working: it is a loop-mounted image whose writes fill the container page cache
+run_name: unet_r50_imagenet_v3
+seed: 1337
+
+model:
+  arch: Unet
+  encoder: resnet50
+  encoder_weights: imagenet  # first conv adapted to 6 channels by segmentation-models-pytorch
+  allow_pretrained_weights: false
+  in_channels: 6
+  classes: 3                 # 0 no water, 1 permanent water, 2 flood
+
+splits:
+  # Official BlackBench event ids (Kuro Siwo repo configs/train/data_config.json).
+  train_acts: [130, 470, 555, 118, 174, 324, 421, 554, 427, 518, 502, 498, 497, 496, 492, 147, 267,
+               273, 275, 417, 567, 1111011, 1111004, 1111009, 1111010, 1111006, 1111005]
+  val_acts: [514, 559, 279, 520, 437, 1111003, 1111008]
+  test_acts: [321, 561, 445, 562, 411, 1111002, 277, 1111007, 205, 1111013]
+  # Held-out "pseudo-Himalaya" fold: the N events with the highest median tile relief, removed
+  # from train/val/test wherever they are. Chosen by DEM only, before any training.
+  mountain_holdout_events: 4
+  max_tiles_per_event: 400
+
+train:
+  epochs: 25
+  batch_size: 16             # per GPU
+  lr: 0.0005
+  weight_decay: 0.0001
+  num_workers: 4
+  ce_weights: [1.0, 1.0, 2.0]
+  dice_weight: 1.0
+  amp: true
+
+augment:
+  flips: true
+  gain_jitter_db: 1.0        # independent per date; mimics calibration differences between processors
+  speckle_db: 0.5
+  pre2_dropout: 0.3          # replace pre2 with pre1 (pipeline may only have one pre-event pass)
+  swap_pre: 0.5
+  no_pre: 0.05               # v2 used 0.15 and lost flood recall on the Kuro Siwo test events

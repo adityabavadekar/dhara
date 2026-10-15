@@ -53,11 +53,16 @@ def make_splits(rows: list[dict], cfg: dict) -> dict[str, list[int]]:
             by_event.setdefault(r["actid"], []).append(r["relief_m"])
     relief = {a: float(np.median(v)) for a, v in by_event.items()}
     k = cfg["splits"]["mountain_holdout_events"]
-    mountain = sorted(relief, key=lambda a: -relief[a])[:k]
+    mountain = cfg["splits"].get("mountain_events") or sorted(relief, key=lambda a: -relief[a])[:k]
     sp = cfg["splits"]
     out: dict[str, list[int]] = {"train": [], "val": [], "test": [], "mountain": []}
     for idx, r in enumerate(rows):
         a = r["actid"]
+        if r.get("source") == "sen1floods11":
+            out["train"].append(
+                idx
+            )  # Sen1Floods11 train/valid chips; its test and Bolivia stay out
+            continue
         if r["valid_frac"] < 0.5:
             continue
         if a in mountain:
@@ -106,19 +111,52 @@ class KuroSiwo(Dataset):
         self._y: dict[str, np.ndarray] = {}
 
     def _arr(self, tag: str):
+        """Per chunk: (path, data offset, sample shape, dtype) for x and y. Samples are read with
+        plain file reads, not memory maps: with mmap every loader worker gradually maps the whole
+        dataset, and the container's memory use grows epoch after epoch."""
         if tag not in self._x:
-            self._x[tag] = np.load(self.data_dir / f"{tag}_x.npy", mmap_mode="r")
-            self._y[tag] = np.load(self.data_dir / f"{tag}_y.npy", mmap_mode="r")
+            for store, kind in ((self._x, "x"), (self._y, "y")):
+                path = self.data_dir / f"{tag}_{kind}.npy"
+                with open(path, "rb") as fh:
+                    version = np.lib.format.read_magic(fh)
+                    read = (
+                        np.lib.format.read_array_header_1_0
+                        if version == (1, 0)
+                        else np.lib.format.read_array_header_2_0
+                    )
+                    shape, _, dtype = read(fh)
+                    store[tag] = (str(path), fh.tell(), tuple(shape[1:]), np.dtype(dtype))
         return self._x[tag], self._y[tag]
+
+    @staticmethod
+    def _read(spec, i: int) -> np.ndarray:
+        path, off, shape, dtype = spec
+        n = int(np.prod(shape)) * dtype.itemsize
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            buf = os.pread(fd, n, off + i * n)
+            os.posix_fadvise(
+                fd, off + i * n, n, os.POSIX_FADV_DONTNEED
+            )  # do not keep in page cache
+        finally:
+            os.close(fd)
+        return np.frombuffer(buf, dtype=dtype).reshape(shape)
+
+    @staticmethod
+    def _db(raw: np.ndarray) -> np.ndarray:
+        """float dB from a stored tile: float16 as is, uint8 as quantised by prep_kurosiwo.py."""
+        if raw.dtype == np.uint8:
+            return raw.astype(np.float32) / 4.0 - 45.0  # DB_STEPS = 4, DB_MIN = -45
+        return raw.astype(np.float32)
 
     def __len__(self) -> int:
         return len(self.idx)
 
     def __getitem__(self, j: int):
         r = self.rows[self.idx[j]]
-        xa, ya = self._arr(r["chunk"])
-        x = np.array(xa[r["i"]], dtype=np.float32)  # (6,H,W) dB: post, pre1, pre2 × (VV,VH)
-        y = np.array(ya[r["i"]], dtype=np.int64)
+        xs, ys = self._arr(r["chunk"])
+        x = self._db(self._read(xs, r["i"]))  # (6,H,W) dB: post, pre1, pre2 × (VV,VH)
+        y = self._read(ys, r["i"]).astype(np.int64)
         a = self.aug
         if a:
             if random.random() < a["swap_pre"]:
@@ -225,6 +263,22 @@ def build_model(cfg: dict) -> nn.Module:
     return base_model
 
 
+WATER_ANY = 3  # label for "water, flood or permanent unknown" (Sen1Floods11 pixels)
+
+
+def any_water_loss(logits, y) -> torch.Tensor:
+    """-log(p_perm + p_flood) on pixels labelled WATER_ANY, summed and divided by all labelled
+    pixels in the batch, so each pixel weighs as much as in the cross-entropy term. (Averaging over
+    the WATER_ANY pixels alone, as v5 did, made a few pixels outweigh the batch and taught the
+    model to call most post-only input water.)"""
+    m = y == WATER_ANY
+    if not m.any():
+        return logits.sum() * 0.0
+    logp = logits.float().log_softmax(1)
+    lw = torch.logsumexp(logp[:, 1:3], dim=1)
+    return -lw[m].sum() / (y != 255).sum().clamp(min=1)
+
+
 def dice_loss(logits, y, n_cls: int):
     valid = (y != 255).unsqueeze(1)
     p = logits.float().softmax(1) * valid
@@ -243,6 +297,45 @@ def focal_loss(logits, y, n_cls: int, gamma: float = 2.0, alpha=None):
     p_t = p.gather(1, target.unsqueeze(1)).squeeze(1)
     focal_weight = (1.0 - p_t) ** gamma
     return (focal_weight * ce)[valid].mean()
+
+
+def lovasz_softmax_loss(logits, y, n_cls: int):
+    """Lovász-softmax (Berman et al., CVPR 2018): a convex surrogate of per-class IoU, averaged
+    over the classes present in the batch. Pixels labelled 255 are ignored."""
+    p = logits.float().softmax(1).permute(0, 2, 3, 1).reshape(-1, n_cls)
+    t = y.reshape(-1)
+    v = t != 255
+    p, t = p[v], t[v]
+    losses = []
+    for c in range(n_cls):
+        fg = (t == c).float()
+        if fg.sum() == 0:
+            continue
+        err, order = (fg - p[:, c]).abs().sort(descending=True)
+        g = fg[order]
+        gts = g.sum()
+        jac = 1.0 - (gts - g.cumsum(0)) / (gts + (1.0 - g).cumsum(0))
+        jac = torch.cat([jac[:1], jac[1:] - jac[:-1]])
+        losses.append(torch.dot(err, jac))
+    return torch.stack(losses).mean() if losses else logits.sum() * 0.0
+
+
+def focal_tversky_loss(
+    logits, y, classes=(1, 2), w_fn: float = 0.7, w_fp: float = 0.3, gamma: float = 0.75
+):
+    """Focal Tversky (Abraham & Khan 2019) on the water classes: Tversky index TP / (TP + w_fn FN
+    + w_fp FP), w_fn > w_fp so missed water costs more than false water; (1 - TI)^gamma."""
+    valid = (y != 255).unsqueeze(1).float()
+    p = logits.float().softmax(1) * valid
+    out = []
+    for c in classes:
+        pc, gc = p[:, c], (y == c).float()
+        tp = (pc * gc).sum()
+        fn = ((1 - pc) * gc * valid[:, 0]).sum()
+        fp = (pc * (1 - gc)).sum()
+        ti = (tp + 1.0) / (tp + w_fn * fn + w_fp * fp + 1.0)
+        out.append((1.0 - ti) ** gamma)
+    return torch.stack(out).mean()
 
 
 # ----------------------------------------------------------------------------- metrics
@@ -443,10 +536,17 @@ def main() -> None:
             x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
             with torch.autocast("cuda", dtype=torch.float16, enabled=tcfg["amp"]):
                 lg = model(x)
-                loss = F.cross_entropy(lg.float(), y, weight=ce_w, ignore_index=255)
-                loss = loss + tcfg["dice_weight"] * dice_loss(lg, y, 3)
+                # Pixels labelled WATER_ANY (Sen1Floods11) are scored by any_water_loss only.
+                y3 = torch.where(y == WATER_ANY, torch.full_like(y, 255), y)
+                loss = F.cross_entropy(lg.float(), y3, weight=ce_w, ignore_index=255)
+                loss = loss + tcfg["dice_weight"] * dice_loss(lg, y3, 3)
+                loss = loss + tcfg.get("any_water_weight", 1.0) * any_water_loss(lg, y)
                 if tcfg.get("focal_weight", 0.0) > 0:
-                    loss = loss + tcfg["focal_weight"] * focal_loss(lg, y, 3, alpha=ce_w)
+                    loss = loss + tcfg["focal_weight"] * focal_loss(lg, y3, 3, alpha=ce_w)
+                if tcfg.get("lovasz_weight", 0.0) > 0:
+                    loss = loss + tcfg["lovasz_weight"] * lovasz_softmax_loss(lg, y3, 3)
+                if tcfg.get("tversky_weight", 0.0) > 0:
+                    loss = loss + tcfg["tversky_weight"] * focal_tversky_loss(lg, y3)
             opt.zero_grad(set_to_none=True)
             scaler.scale(loss).backward()
             scale_before = scaler.get_scale()

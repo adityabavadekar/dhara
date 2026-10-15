@@ -12,6 +12,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from dhara.osm_names import shown_name
+
 
 def _int(v: Any) -> int:
     """GeoJSON exports store numbers as strings; "None" and blanks count as 0."""
@@ -28,15 +30,47 @@ def _float(v: Any) -> float:
         return 0.0
 
 
+def _approximate_aoi_center(aoi: Any) -> tuple[float, float] | None:
+    """Return the bounding-box center of a GeoJSON AOI in EPSG:4326 (longitude, latitude)."""
+    if not isinstance(aoi, dict):
+        return None
+    geometry = aoi.get("geojson", aoi)
+    if not isinstance(geometry, dict):
+        return None
+    coordinates = geometry.get("coordinates")
+    positions: list[tuple[float, float]] = []
+
+    def collect(value: Any) -> None:
+        if not isinstance(value, list):
+            return
+        if len(value) >= 2 and all(isinstance(part, (int, float)) for part in value[:2]):
+            positions.append((float(value[0]), float(value[1])))
+            return
+        for child in value:
+            collect(child)
+
+    collect(coordinates)
+    if not positions:
+        return None
+    longitudes = [position[0] for position in positions]
+    latitudes = [position[1] for position in positions]
+    return (
+        (min(longitudes) + max(longitudes)) / 2,
+        (min(latitudes) + max(latitudes)) / 2,
+    )
+
+
 def load_job_context(job_dir: Path) -> dict[str, Any]:
-    """Load and structure multimodal evidence from a completed Dhara job directory."""
+    """Load job evidence; GeoJSON geometries and AOI coordinates use EPSG:4326."""
     context: dict[str, Any] = {
         "job_id": job_dir.name,
         "kpis": {},
         "summary": {},
         "cut_off_settlements": [],
         "damaged_bridges": [],
+        "health_facilities": [],
         "repair_priorities": [],
+        "location": {},
     }
 
     facts_path = job_dir / "facts.json"
@@ -52,10 +86,30 @@ def load_job_context(job_dir: Path) -> dict[str, Any]:
                     "num": item.get("num"),
                 }
 
+    # The report's facts (cached by the API, rebuilt when an input or the facts code changes)
+    # supersede the ones written when the job ran, so the assistant, dashboard and report agree.
+    report_facts = job_dir / "sitrep_facts.json"
+    if report_facts.exists():
+        with contextlib.suppress(Exception):
+            items = json.loads(report_facts.read_text())["payload"]["items"]
+            for key, item in items.items():
+                context["kpis"][key] = {"text": item.get("text", ""), "val": item.get("value")}
+
     summary_path = job_dir / "summary.json"
     if summary_path.exists():
         with contextlib.suppress(Exception):
             context["summary"] = json.loads(summary_path.read_text())
+
+    provenance_path = job_dir / "provenance.json"
+    if provenance_path.exists():
+        with contextlib.suppress(Exception):
+            provenance = json.loads(provenance_path.read_text())
+            inputs = provenance.get("inputs", {})
+            aoi = inputs.get("aoi", {})
+            context["location"] = {
+                "name": aoi.get("name") or inputs.get("location_name"),
+                "center": _approximate_aoi_center(aoi),
+            }
 
     settlements_path = job_dir / "web" / "settlements.geojson"
     if settlements_path.exists():
@@ -67,7 +121,7 @@ def load_job_context(job_dir: Path) -> dict[str, Any]:
                 if status in ("cut_off", "hospital_cut_off", "detour"):
                     context["cut_off_settlements"].append(
                         {
-                            "name": props.get("name") or "(unnamed settlement)",
+                            "name": shown_name(props.get("name")) or "(unnamed settlement)",
                             "status": status,
                             "p_cut_off": props.get("p_cut_off"),
                             "buildings": _int(props.get("buildings_500m")),
@@ -89,8 +143,8 @@ def load_job_context(job_dir: Path) -> dict[str, Any]:
                     context["damaged_bridges"].append(
                         {
                             "name": (
-                                str(props.get("name"))
-                                if props.get("name") not in (None, "", "None")
+                                str(shown_name(props.get("name")))
+                                if shown_name(props.get("name")) not in (None, "", "None")
                                 else ""
                             )
                             or f"Unnamed {props.get('highway') or 'road'} bridge",
@@ -103,6 +157,23 @@ def load_job_context(job_dir: Path) -> dict[str, Any]:
                         }
                     )
             context["damaged_bridges"].sort(key=lambda b: _float(b.get("p_lost")), reverse=True)
+
+    hospitals_path = job_dir / "web" / "hospitals.geojson"
+    if hospitals_path.exists():
+        with contextlib.suppress(Exception):
+            gj = json.loads(hospitals_path.read_text())
+            for feat in gj.get("features", []):
+                props = feat.get("properties", {})
+                raw_isolated = props.get("is_isolated")
+                is_isolated = raw_isolated is True or str(raw_isolated).lower() == "true"
+                is_isolated = is_isolated or str(props.get("status", "")).lower() == "isolated"
+                context["health_facilities"].append(
+                    {
+                        "name": shown_name(props.get("name")) or "Unnamed health facility",
+                        "kind": props.get("amenity") or props.get("kind") or "health facility",
+                        "is_isolated": is_isolated,
+                    }
+                )
 
     repairs_path = job_dir / "repairs.json"
     if repairs_path.exists():
@@ -142,7 +213,7 @@ def build_system_prompt(ctx: dict[str, Any], lang: str = "en") -> str:
     damaged_bridges = ctx.get("damaged_bridges", [])[:10]
     bridges_list = "\n".join(
         [
-            f"  * {b['name']}: status={b['status']}, P(lost)={b.get('p_lost', 'N/A')}, radar drop={b.get('bright_drop_db', 'N/A')} dB"
+            f"  * {b['name']}: status={b['status']}, heuristic loss score={b.get('p_lost', 'N/A')}, radar drop={b.get('bright_drop_db', 'N/A')} dB"
             for b in damaged_bridges
         ]
     )
@@ -159,7 +230,7 @@ def build_system_prompt(ctx: dict[str, Any], lang: str = "en") -> str:
 Your primary role is to assist emergency commanders, search & rescue teams, local authorities, and the public.
 
 CRITICAL INSTRUCTIONS:
-1. TRUTHFULNESS & GROUNDING: You must ONLY state numerical facts backed by the verified disaster facts provided below. NEVER invent or hallucinate numbers or casualty counts.
+1. TRUTHFULNESS & GROUNDING: You must ONLY state numerical facts backed by the verified disaster facts provided below. NEVER invent or hallucinate numbers or casualty counts. Hazard and bridge values are heuristic model scores, not calibrated probabilities; do not call them chances or likelihood percentages.
 2. OBSERVABILITY LIMITATION: Explicitly remind users that radar shadow, gorge layover, and cloud cover obscure terrain ({get_kpi("area_not_observable_km2")} km² unobservable). "Unobserved" means unknown, NOT undamaged.
 3. DEBRIS NATURE: Remind users that debris flows in mountain valleys are rough and bright in SAR, unlike dark open water.
 4. LANGUAGE: Answer fluently, professionally, and accurately in the requested language: '{lang}'. Use culturally appropriate phrasing and respectful tone.

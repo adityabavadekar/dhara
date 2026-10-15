@@ -5,400 +5,975 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ L.title }} · {{ F.event }}</title>
 <style>
-  @page { size: A4; margin: 10mm 11mm 12mm; @bottom-left { content: "{{ L.prototype }}"; font: 6.5pt "Noto Sans", sans-serif; color: #64748b; } @bottom-right { content: counter(page) " / " counter(pages); font: 6.5pt "Noto Sans", sans-serif; color: #64748b; } }
-  :root { --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --soft:#f8fafc; --debris:#c27803; --flood:#1d4ed8; --water:#7dd3fc; --unobs:#a8a29e; --cut:#b91c1c; --hosp:#ea580c; --detour:#d97706; --ok:#16a34a; --link:#0369a1; }
+  @page {
+    size: A4 portrait;
+    margin: 6mm 8.5mm 6mm;
+    @bottom-left { content: "{{ L.prototype }}"; font: 6.2pt "Inter", sans-serif; color: #64748b; }
+    @bottom-right { content: "Dhara Situation Report · {{ F.job_id }}"; font: 6.2pt "Inter", sans-serif; color: #64748b; }
+  }
+  :root {
+    --ink: #0f172a;
+    --muted: #475569;
+    --line: #cbd5e1;
+    --line-subtle: #e2e8f0;
+    --soft: #f8fafc;
+    --debris: #b45309;
+    --debris-bg: #fef3c7;
+    --flood: #1d4ed8;
+    --flood-bg: #dbeafe;
+    --water: #0284c7;
+    --unobs: #94a3b8;
+    --cut: #b91c1c;
+    --cut-bg: #fee2e2;
+    --hosp: #ea580c;
+    --hosp-bg: #ffedd5;
+    --detour: #d97706;
+    --ok: #15803d;
+    --ok-bg: #dcfce7;
+    --link: #0369a1;
+  }
   * { box-sizing: border-box; }
-  html { background: #e2e8f0; }
-  body { margin: 0; color: var(--ink); font: 8.8pt/1.45 "Plus Jakarta Sans", "Inter", "Noto Sans", "Noto Sans Devanagari", "Noto Sans CJK SC", "Noto Sans SC", system-ui, sans-serif; }
-  .sheet { background: #fff; width: 210mm; min-height: 297mm; margin: 12px auto; padding: 11mm 12mm; box-shadow: 0 1px 3px rgb(15 23 42 / .12); }
-  @media print { html { background: #fff; } .sheet { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; break-after: page; } .sheet:last-child { break-after: auto; } }
-  @media (max-width: 800px) { .sheet { width: auto; min-height: 0; margin: 0 0 8px; padding: 16px; } .cols, .kpis { grid-template-columns: 1fr !important; } }
-  .brand { display:flex; justify-content:space-between; align-items:center; font-size: 7.5pt; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
-  .badge { border: 1px solid var(--ink); color: var(--ink); border-radius: 4px; padding: 1px 6px; font-size: 7pt; }
-  h1 { font-size: 17pt; line-height: 1.15; margin: 4px 0 2px; letter-spacing: -.02em; }
-  h2 { font-size: 11.5pt; margin: 0 0 6px; letter-spacing: -.01em; }
-  h3 { font-size: 8pt; margin: 10px 0 4px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
-  .meta { color: var(--muted); font-size: 8pt; border-bottom: 2px solid var(--ink); padding-bottom: 6px; margin-bottom: 8px; }
-  .bl { border-left: 3px solid var(--cut); background: #fef2f2; padding: 6px 10px; border-radius: 0 6px 6px 0; margin-bottom: 8px; }
-  .bl ul { margin: 2px 0 0; padding-left: 14px; } .bl li { margin: 2px 0; }
-  .bl .label { font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--cut); }
-  .kpis { display:grid; grid-template-columns: repeat(4, 1fr); gap: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 8px; }
-  .kpi { padding: 6px 9px; border-right: 1px solid var(--line); } .kpi:last-child { border-right: 0; }
-  .kpi .h { font-size: 7.4pt; color: var(--muted); font-weight: 600; }
-  .kpi .v { font-size: 18pt; font-weight: 750; letter-spacing: -.02em; line-height: 1.15; font-variant-numeric: tabular-nums; }
-  .kpi .u { font-size: 8pt; color: var(--muted); font-weight: 500; }
-  .kpi .s { font-size: 7.2pt; color: var(--muted); }
-  .bar { display:flex; height: 4px; border-radius: 2px; overflow:hidden; background: var(--line); margin: 3px 0 2px; }
-  .bar span { display:block; height:100%; }
-  .map { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-  .map { text-align: center; background: #f8fafc; }
-  .map img { display:inline-block; max-width: 100%; vertical-align: top; }
-  .legend { display:flex; flex-wrap: wrap; gap: 3px 10px; font-size: 7.2pt; color: var(--muted); margin: 4px 0 2px; }
-  .sw { display:inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 3px; vertical-align: -1px; }
-  .dot { display:inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 3px; vertical-align: -1px; }
-  .ln { display:inline-block; width: 12px; height: 2px; margin-right: 3px; vertical-align: 2px; }
-  .note { font-size: 7.3pt; color: var(--muted); margin: 3px 0 0; }
-  .cols { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  table { width: 100%; border-collapse: collapse; font-size: 7.8pt; }
-  th, td { text-align: left; padding: 2.5px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { color: var(--muted); font-weight: 600; font-size: 7.2pt; }
+  html { background: #cbd5e1; }
+  body {
+    margin: 0;
+    color: var(--ink);
+    font: 7.3pt/1.31 'IBM Plex Sans', 'IBM Plex Sans Devanagari', 'Noto Sans SC', 'Noto Sans CJK SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    letter-spacing: -0.011em;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .sheet {
+    background: #fff;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    padding: 5mm 8mm;
+    display: flex;
+    flex-direction: column;
+  }
+  @media print {
+    html { background: #fff; }
+    .sheet {
+      width: 100%;
+      height: 287mm;
+      max-height: 287mm;
+      min-height: 287mm;
+      margin: 0;
+      padding: 0;
+      box-shadow: none;
+      break-after: avoid;
+    }
+  }
+
+  /* Header */
+  .header-block {
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 3.5px;
+    margin-bottom: 4.5px;
+  }
+  .top-meta-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 7pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    margin-bottom: 2px;
+  }
+  .brand-id {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+  }
+  .brand-id b {
+    color: var(--ink);
+  }
+  .badge-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .badge {
+    border: 1px solid #94a3b8;
+    color: #334155;
+    border-radius: 3px;
+    padding: 1.5px 6px;
+    font-size: 6.4pt;
+    font-weight: 700;
+    letter-spacing: .03em;
+  }
+  .v-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3.5px;
+    border-radius: 3px;
+    padding: 1.5px 7px;
+    font-size: 6.8pt;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: #fff;
+  }
+  .v-chip .v-lbl {
+    font-size: 5.8pt;
+    font-weight: 700;
+    opacity: 0.9;
+    letter-spacing: .04em;
+  }
+  .v-severe { background: #b91c1c; }
+  .v-high { background: #ea580c; }
+  .v-moderate { background: #d97706; }
+  .v-low { background: #15803d; }
+
+  .title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    margin: 2px 0 1px;
+  }
+  h1 {
+    font-size: 13pt;
+    font-weight: 800;
+    line-height: 1.15;
+    margin: 0;
+    white-space: nowrap;
+    letter-spacing: -.02em;
+    color: var(--ink);
+    flex-shrink: 0;
+  }
+  .headline-sub {
+    font-size: 7.2pt;
+    font-weight: 700;
+    color: var(--cut);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: right;
+  }
+
+  .meta-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    font-size: 6.9pt;
+    color: var(--muted);
+    margin-top: 2.5px;
+    padding-top: 2.5px;
+    border-top: 1px solid var(--line-subtle);
+  }
+  .meta-pills span {
+    display: inline-flex;
+    align-items: center;
+  }
+  .meta-pills span b {
+    color: var(--ink);
+    margin-left: 2px;
+  }
+  .ico {
+    display: inline-block;
+    width: 7.5pt;
+    height: 7.5pt;
+    vertical-align: -1px;
+    margin-right: 2.5px;
+    stroke: currentColor;
+    opacity: 0.75;
+  }
+  .ico-ext {
+    display: inline-block;
+    width: 6.5pt;
+    height: 6.5pt;
+    vertical-align: 0;
+    margin-left: 1.5px;
+    stroke: currentColor;
+  }
+  .sat-corner-box {
+    margin-top: 3px;
+    border-top: 1px solid var(--line-subtle);
+    padding-top: 2px;
+  }
+  .sat-corner-title {
+    font-size: 5.9pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--muted);
+    margin-bottom: 1.5px;
+  }
+  .sat-corner-box img {
+    display: block;
+    width: 100%;
+    max-height: 20mm;
+    object-fit: contain;
+    border-radius: 2px;
+  }
+  .card-ans {
+    font-size: 6.6pt;
+    line-height: 1.25;
+    color: #1e293b;
+    background: #f8fafc;
+    border-left: 2px solid #3b82f6;
+    padding: 2px 4.5px;
+    border-radius: 0 2px 2px 0;
+    margin-bottom: 3px;
+  }
+
+  /* KPIs Banner */
+  .kpis-banner {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 5px;
+    margin-bottom: 3.5px;
+  }
+  .kpi-card {
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 3.5px 6px;
+    background: #fff;
+  }
+  .kpi-card .k-title {
+    font-size: 6.5pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--muted);
+  }
+  .kpi-card .k-val {
+    font-size: 14pt;
+    font-weight: 800;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    margin: 1px 0;
+  }
+  .kpi-card .k-val .u {
+    font-size: 7.5pt;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .kpi-card .k-bar {
+    display: flex;
+    height: 3px;
+    border-radius: 1.5px;
+    overflow: hidden;
+    background: #e2e8f0;
+    margin: 1.5px 0;
+  }
+  .kpi-card .k-bar span { display: block; height: 100%; }
+  .kpi-card .k-sub {
+    font-size: 6.3pt;
+    color: var(--muted);
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Threat Callout Box */
+  .alert-callout {
+    border-left: 3.5px solid var(--cut);
+    background: #fef2f2;
+    padding: 3.5px 7px;
+    border-radius: 0 4px 4px 0;
+    margin-bottom: 3.5px;
+  }
+  .alert-callout .alert-head {
+    font-size: 6.8pt;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--cut);
+    margin-bottom: 1px;
+  }
+  .alert-callout ul {
+    margin: 0;
+    padding-left: 12px;
+  }
+  .alert-callout li {
+    margin: 1px 0;
+    font-size: 6.8pt;
+    line-height: 1.24;
+  }
+
+  /* Main 2-Column Split */
+  .main-split {
+    display: grid;
+    grid-template-columns: 88mm 1fr;
+    gap: 6.5px;
+    margin-bottom: 3.5px;
+  }
+
+  /* Content Cards */
+  .c-card {
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 3.5px 5.5px;
+    background: #fff;
+    margin-bottom: 3.5px;
+  }
+  .c-card:last-child { margin-bottom: 0; }
+  .c-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 7.2pt;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--ink);
+    border-bottom: 1px solid var(--line-subtle);
+    padding-bottom: 2px;
+    margin-bottom: 3px;
+  }
+  .c-head .c-sub {
+    font-size: 6.4pt;
+    color: var(--muted);
+    font-weight: 500;
+    text-transform: none;
+  }
+
+  /* Situation Map */
+  .map-box {
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+    background: #f8fafc;
+    text-align: center;
+  }
+  .map-box img {
+    display: block;
+    width: 100%;
+    max-height: 82mm;
+    object-fit: contain;
+  }
+  .map-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 7px;
+    font-size: 6.4pt;
+    color: var(--muted);
+    margin: 3px 0 2px;
+    line-height: 1.2;
+  }
+  .sw { display: inline-block; width: 7px; height: 7px; border-radius: 1.5px; margin-right: 2px; vertical-align: -0.5px; }
+  .dot { display: inline-block; width: 6.5px; height: 6.5px; border-radius: 50%; margin-right: 2px; vertical-align: -0.5px; }
+  .ln { display: inline-block; width: 10px; height: 2px; margin-right: 2px; vertical-align: 1.5px; }
+
+  /* 4-Quadrant Matrix */
+  .metric-matrix {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 3px;
+  }
+  .metric-matrix div {
+    padding: 2.5px 4px;
+    border-right: 1px solid var(--line);
+    background: var(--soft);
+  }
+  .metric-matrix div:last-child { border-right: 0; }
+  .metric-matrix span {
+    display: block;
+    color: var(--muted);
+    font-size: 5.9pt;
+    text-transform: uppercase;
+  }
+  .metric-matrix b {
+    font-size: 7.3pt;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 6.8pt;
+    line-height: 1.24;
+  }
+  th, td {
+    text-align: left;
+    padding: 2px 3px;
+    border-bottom: 1px solid var(--line-subtle);
+    vertical-align: middle;
+  }
+  th {
+    color: var(--muted);
+    font-weight: 700;
+    font-size: 6.3pt;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    border-bottom: 1px solid var(--line);
+    background: #f8fafc;
+  }
   td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  tr { break-inside: avoid; }
-  .rk { display:inline-block; min-width: 15px; height: 15px; line-height: 15px; text-align:center; border-radius: 50%; color: #fff; font-size: 6.8pt; font-weight: 700; }
-  .rk.sq { border-radius: 3px; }
+  tr:last-child td { border-bottom: 0; }
+
+  .rk {
+    display: inline-block;
+    min-width: 13px;
+    height: 13px;
+    line-height: 13px;
+    text-align: center;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 5.8pt;
+    font-weight: 800;
+  }
+  .rk.sq { border-radius: 2px; }
   a { color: var(--link); text-decoration: none; }
   a:hover { text-decoration: underline; }
-  .pin { font-size: 7pt; white-space: nowrap; }
-  .tag { display:inline-block; border-radius: 3px; padding: 0 4px; font-size: 7pt; font-weight: 600; }
-  .t-cut { background:#fee2e2; color:#991b1b; } .t-hosp { background:#ffedd5; color:#9a3412; } .t-lost { background:#fee2e2; color:#991b1b; } .t-risk { background:#ffedd5; color:#9a3412; }
-  .box { border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; background: var(--soft); }
-  .empty { color: var(--muted); font-style: italic; }
-  .kv { display:grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 7.8pt; }
-  .kv dt { color: var(--muted); } .kv dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .credits { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display:grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; font-size: 7.2pt; color: #334155; }
-  .credits .c { padding-left: 8px; border-left: 2px solid var(--line); }
-  .credits .t { font-weight: 700; color: var(--ink); font-size: 7.4pt; }
-  .foot { margin-top: 8px; font-size: 7pt; color: var(--muted); border-top: 1px solid var(--line); padding-top: 5px; }
-  .links a { display:inline-block; margin-right: 12px; font-weight: 600; }
-  ul.lim { margin: 0; padding-left: 14px; } ul.lim li { margin: 1.5px 0; }
+  .pin { font-size: 6.2pt; white-space: nowrap; }
+
+  .tag {
+    display: inline-block;
+    border-radius: 2.5px;
+    padding: 0.5px 3.5px;
+    font-size: 5.9pt;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .02em;
+  }
+  .t-cut { background: var(--cut-bg); color: var(--cut); }
+  .t-hosp { background: var(--hosp-bg); color: var(--hosp); }
+  .t-lost { background: var(--cut-bg); color: var(--cut); }
+  .t-risk { background: var(--debris-bg); color: var(--debris); }
+  .t-ok { background: var(--ok-bg); color: var(--ok); }
+
+  .card-note {
+    font-size: 6.3pt;
+    color: var(--muted);
+    line-height: 1.22;
+    margin: 2px 0 0;
+  }
+  .card-note b { color: var(--ink); }
+  .empty { color: var(--muted); font-style: italic; font-size: 6.5pt; margin: 2px 0; }
+  .status-strip {
+    font-size: 6.5pt;
+    color: var(--muted);
+    background: #f8fafc;
+    border: 1px solid var(--line-subtle);
+    border-radius: 3px;
+    padding: 2.5px 5px;
+    margin: 1px 0;
+  }
+
+  /* Footer Structured Box */
+  .footer-box {
+    margin-top: auto;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--soft);
+    padding: 3.5px 6px;
+    display: grid;
+    grid-template-columns: 1.28fr 1fr 1.2fr;
+    gap: 8px;
+    font-size: 6.2pt;
+    color: #334155;
+    line-height: 1.24;
+  }
+  .footer-box .f-col {
+    display: flex;
+    flex-direction: column;
+  }
+  .f-head {
+    font-size: 6.3pt;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--ink);
+    margin-bottom: 2px;
+    padding-bottom: 1.5px;
+    border-bottom: 1px solid var(--line-subtle);
+  }
+  .f-kv-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5px;
+  }
+  .f-kv {
+    display: flex;
+    gap: 4.5px;
+    align-items: baseline;
+    font-size: 5.9pt;
+    line-height: 1.24;
+  }
+  .f-lbl {
+    color: var(--muted);
+    font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .f-val {
+    color: var(--ink);
+    word-break: break-word;
+  }
+  .f-bullet-list {
+    margin: 0;
+    padding-left: 10px;
+    font-size: 5.9pt;
+    line-height: 1.2;
+    color: var(--muted);
+    display: flex;
+    flex-direction: column;
+    gap: 1.5px;
+  }
+  .f-bullet-list li {
+    padding-left: 1px;
+  }
+  .f-credits-content {
+    font-size: 5.8pt;
+    line-height: 1.2;
+    color: var(--muted);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .f-attr {
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .f-note {
+    color: #64748b;
+  }
 </style>
 </head>
 <body>
 
-{# ------------------------------------------------------------------ page 1: quick look #}
 <section class="sheet">
-  <div class="brand"><span>{{ L.brand }}</span><span class="badge">{{ L.prototype }}</span></div>
-  <h1>{{ L.title }}</h1>
-  <div class="meta">{{ L.event }} {{ F.event }} · {{ L.area }} {{ F.aoi_area_km2 }} km² · {{ L.generated }} {{ F.generated_utc }} · {{ L.job }} {{ F.job_id }}</div>
+  <div>
+    <!-- 1. Executive Identification & Metadata Header -->
+    <div class="header-block">
+      <div class="top-meta-row">
+        <div class="brand-id">
+          <span><b>{{ L.brand }}</b></span>
+          <span>·</span>
+          <span>{{ L.job }}: <b>#{{ F.job_id }}</b></span>
+        </div>
+        <div class="badge-row">
+          <span class="badge">{{ L.prototype }}</span>
+          {% if F.verdict_level %}
+          <span class="v-chip v-{{ F.verdict_level | lower }}"><span class="v-lbl">{{ L.impact_severity }}:</span> {{ F.verdict_level }}</span>
+          {% endif %}
+        </div>
+      </div>
 
-  <div class="bl">
-    <div class="label">{{ L.bottom_line }}</div>
-    <ul>
-      <li><b>{{ F.settlements_cut_off }}</b> {{ L.bl_cut_a }} {{ F.settlements_total }} {{ L.bl_cut_b }}
-        <b>{{ F.settlements_hospital_cut_off }}</b> {{ L.bl_hosp }} <b>{{ F.settlements_detour }}</b> {{ L.bl_detour }}
-        {% if flags.cut %}{{ F.buildings_in_cut_off }} {{ L.bl_bld }} {{ F.exposure_radius_m }} m {{ L.bl_bld_b }}{% endif %}</li>
-      <li><b>{{ F.bridges_lost }}</b> {{ L.bl_br_a }} {{ F.bridges_total }} {{ L.bl_br_b }} {{ F.bridges_at_risk }} {{ L.bl_br_c }}
-        <b>{{ F.network_failed_km }} km</b> {{ L.bl_road }}</li>
-      <li>{{ L.bl_hz_a }} <b>{{ F.area_debris_km2 }} km²</b> {{ L.bl_hz_b }} <b>{{ F.area_flood_km2 }} km²</b>;
-        <b>{{ F.buildings_hit }}</b> {{ L.bl_hz_c }} {{ F.buildings_total }} {{ L.bl_hz_d }}
-        {% if flags.unobs %}<b>{{ F.area_not_observable_km2 }} km²</b> {{ L.bl_unobs_a }} <b>{{ L.bl_unobs_b }}</b>{% endif %}</li>
-    </ul>
-  </div>
+      <div class="title-row">
+        <h1>{{ L.title }}</h1>
+        {% if F.verdict_headline %}
+        <span class="headline-sub">{{ F.verdict_headline }}</span>
+        {% endif %}
+      </div>
 
-  <div class="kpis">
-    <div class="kpi">
-      <div class="h">{{ L.k_hazard }}</div>
-      <div class="v">{{ F.area_debris_km2 }} <span class="u">km²</span></div>
-      <div class="bar"><span style="width:{{ bars.debris }}%;background:var(--debris)"></span><span style="width:{{ bars.flood }}%;background:var(--flood)"></span><span style="width:{{ bars.unobs }}%;background:var(--unobs)"></span></div>
-      <div class="s">{{ L.k_hazard_sub }} {{ F.area_flood_km2 }} km²</div>
-    </div>
-    <div class="kpi">
-      <div class="h">{{ L.k_cut }}</div>
-      <div class="v" style="color:var(--cut)">{{ F.settlements_cut_off }}</div>
-      <div class="bar"><span style="width:{{ bars.cut }}%;background:var(--cut)"></span><span style="width:{{ bars.hosp }}%;background:var(--hosp)"></span><span style="width:{{ bars.detour }}%;background:var(--detour)"></span></div>
-      <div class="s">{{ L.k_cut_sub }} {{ F.settlements_total }}</div>
-    </div>
-    <div class="kpi">
-      <div class="h">{{ L.k_bridges }}</div>
-      <div class="v" style="color:var(--hosp)">{{ F.bridges_lost }}</div>
-      <div class="bar"><span style="width:{{ bars.br_lost }}%;background:var(--cut)"></span><span style="width:{{ bars.br_risk }}%;background:var(--hosp)"></span></div>
-      <div class="s">{{ L.bl_br_a }} {{ F.bridges_total }} {{ L.k_bridges_sub }} {{ F.bridges_at_risk }}</div>
-    </div>
-    <div class="kpi">
-      <div class="h">{{ L.k_bld }}</div>
-      <div class="v" style="color:#b45309">{{ F.buildings_hit }}</div>
-      <div class="bar"><span style="width:{{ bars.bld }}%;background:#b45309"></span></div>
-      <div class="s">{{ L.bl_br_a }} {{ F.buildings_total }} {{ L.k_bld_sub }}</div>
-    </div>
-  </div>
-
-  {% if maps.overview %}
-  <div class="map"><img src="data:image/png;base64,{{ maps.overview }}" alt="{{ L.map_overview }}"></div>
-  <div class="legend">
-    <span><span class="sw" style="background:var(--debris)"></span>{{ L.lg_debris }}</span>
-    <span><span class="sw" style="background:var(--flood)"></span>{{ L.lg_flood }}</span>
-    <span><span class="sw" style="background:var(--water)"></span>{{ L.lg_water }}</span>
-    <span><span class="sw" style="background:var(--unobs)"></span>{{ L.lg_unobs }}</span>
-    <span><span class="ln" style="background:#dc2626"></span>{{ L.lg_failed }}</span>
-    <span><span class="dot" style="background:var(--cut)"></span>{{ L.lg_cut }}</span>
-    <span><span class="dot" style="background:var(--hosp)"></span>{{ L.lg_hosp_cut }}</span>
-    <span><span class="dot" style="background:var(--detour)"></span>{{ L.lg_detour }}</span>
-    <span><span class="dot" style="background:var(--ok)"></span>{{ L.lg_connected }}</span>
-    <span><span class="dot" style="background:#fff;border:1.5px solid #dc2626"></span>{{ L.lg_hospital }}</span>
-  </div>
-  <p class="note">{{ L.map_overview_note }}</p>
-  {% endif %}
-
-  <div class="cols" style="margin-top:6px">
-    <div>
-      <h3>{{ L.act_first }}</h3>
-      {% if T.cut_off %}
-      <table>
-        {% for r in T.cut_off[:5] %}<tr>
-          <td style="width:18px"><span class="rk" style="background:{% if r.status == 'cut off' %}var(--cut){% else %}var(--hosp){% endif %}">{{ r.rank }}</span></td>
-          <td><b>{{ r.name }}</b> <span class="tag {% if r.status == 'cut off' %}t-cut{% else %}t-hosp{% endif %}">{% if r.status == 'cut off' %}{{ L.st_cut_off }}{% else %}{{ L.st_hospital_cut_off }}{% endif %}</span></td>
-          <td class="n">{{ r.buildings }} {{ L.bldgs }}</td>
-          <td class="pin"><a href="{{ r.gmaps_url }}">↗ Maps</a></td>
-        </tr>{% endfor %}
-      </table>
-      {% else %}<p class="empty">{{ L.act_none }}</p>{% endif %}
-    </div>
-    <div>
-      <h3>{{ L.top_repairs }}</h3>
-      {% if T.repairs %}
-      <table>
-        {% for r in T.repairs[:3] %}<tr>
-          <td style="width:18px"><span class="rk sq" style="background:var(--ok)">{{ r.rank }}</span></td>
-          <td><b>{{ r.what }}</b> <span class="note">{{ r.highway }}</span></td>
-          <td class="n">{{ L.reconnects }} {{ r.settlements }} · {{ r.buildings }} {{ L.bldgs }}</td>
-        </tr>{% endfor %}
-      </table>
-      {% else %}<p class="empty">{{ L.repair_none }}</p>{% endif %}
-      <h3>{{ L.trust }}</h3>
-      <p class="note" style="margin:0">{{ F.observable_pct }}% {{ L.observable }} {{ L.trust_text }}</p>
-    </div>
-  </div>
-  <div class="foot">{{ L.footer }}</div>
-</section>
-
-{# ------------------------------------------------------------------ page 2: hazard and damage #}
-<section class="sheet">
-  <h2>{{ L.p2_title }}</h2>
-  {% if maps.zoom %}
-  <div class="map"><img src="data:image/png;base64,{{ maps.zoom }}" alt="{{ L.zoom_title }}"></div>
-  <div class="legend">
-    <span><span class="sw" style="background:var(--debris)"></span>{{ L.lg_debris }}</span>
-    <span><span class="sw" style="background:var(--flood)"></span>{{ L.lg_flood }}</span>
-    <span><span class="sw" style="background:#b45309"></span>{{ L.lg_bld }}</span>
-    <span><span class="ln" style="background:var(--cut);height:4px"></span>{{ L.lg_bridge_lost }}</span>
-    <span><span class="ln" style="background:var(--hosp);height:4px"></span>{{ L.lg_bridge_risk }}</span>
-    <span><span class="ln" style="background:#dc2626"></span>{{ L.lg_failed }}</span>
-  </div>
-  <p class="note">{{ L.zoom_note }}</p>
-  {% endif %}
-
-  <div class="cols" style="margin-top:4px">
-    <div>
-      <h3>{{ L.t_hazard }}</h3>
-      <table>
-        <tr><th>{{ L.c_class }}</th><th class="n">{{ L.c_km2 }}</th></tr>
-        <tr><td><span class="sw" style="background:var(--debris)"></span>{{ L.h_debris }}</td><td class="n">{{ F.area_debris_km2 }}</td></tr>
-        <tr><td><span class="sw" style="background:var(--flood)"></span>{{ L.h_flood }}</td><td class="n">{{ F.area_flood_km2 }}</td></tr>
-        <tr><td><span class="sw" style="background:var(--water)"></span>{{ L.h_water }}</td><td class="n">{{ F.area_permanent_water_km2 }}</td></tr>
-        <tr><td><span class="sw" style="background:var(--unobs)"></span>{{ L.h_unobs }}</td><td class="n">{{ F.area_not_observable_km2 }}</td></tr>
-      </table>
-      <h3>{{ L.t_conf }}</h3>
-      <table>
-        <tr><th></th><th class="n">{{ L.c_km2 }}</th><th class="n">{{ L.c_bld }}</th></tr>
-        <tr><td>{{ L.high }}</td><td class="n">{{ F.area_tier_high_km2 }}</td><td class="n">{{ F.buildings_hit_high }}</td></tr>
-        <tr><td>{{ L.moderate }}</td><td class="n">{{ F.area_tier_moderate_km2 }}</td><td class="n">{{ F.buildings_hit_moderate }}</td></tr>
-        <tr><td>{{ L.low }}</td><td class="n">{{ F.area_tier_low_km2 }}</td><td class="n">{{ F.buildings_hit_low }}</td></tr>
-      </table>
-      <p class="note">{{ L.conf_note }}</p>
-    </div>
-    <div>
-      <h3>{{ L.t_damage }}</h3>
-      <dl class="kv">
-        <dt>{{ L.d_bld }}</dt><dd>{{ F.buildings_hit }} / {{ F.buildings_total }}</dd>
-        <dt>{{ L.d_bld_unobs }}</dt><dd>{{ F.buildings_unobserved }}</dd>
-        <dt>{{ L.d_roads }}</dt><dd>{{ F.road_ways_hit }}</dd>
-        <dt>{{ L.d_net }}</dt><dd>{{ F.network_km }} km</dd>
-        <dt>{{ L.d_failed }}</dt><dd>{{ F.network_failed_km }} km</dd>
-        <dt>{{ L.d_net_unobs }}</dt><dd>{{ F.network_unobserved_pct }}%</dd>
-      </dl>
-      <h3>{{ L.t_fac }}</h3>
-      {% if T.facilities_hit %}
-      <table>
-        <tr><th>{{ L.f_name }}</th><th>{{ L.f_type }}</th><th>{{ L.f_hazard }}</th><th></th></tr>
-        {% for r in T.facilities_hit %}<tr><td>{{ r.name }}</td><td>{{ r.type }}</td><td>{{ r.hazard }} · {{ r.confidence }}</td><td class="pin"><a href="{{ r.gmaps_url }}">↗ Maps</a></td></tr>{% endfor %}
-      </table>
-      {% else %}<p class="empty">{{ L.f_none }}</p>{% endif %}
-    </div>
-  </div>
-
-  <h3>{{ L.t_bridges }}</h3>
-  {% if T.bridges %}
-  <table>
-    <tr><th></th><th>{{ L.b_name }}</th><th>{{ L.b_status }}</th><th class="n">{{ L.b_p }}</th><th class="n">{{ L.b_drop }}</th><th class="n">{{ L.b_len }}</th><th></th></tr>
-    {% for r in T.bridges %}<tr>
-      <td style="width:18px"><span class="rk sq" style="background:var(--ink)">{{ r.rank }}</span></td>
-      <td>{{ r.name }}{% if r.osm_url %} <a class="note" href="{{ r.osm_url }}">{{ r.osm_label }}</a>{% endif %}</td>
-      <td><span class="tag {% if r.status == 'likely lost' %}t-lost{% else %}t-risk{% endif %}">{{ r.status }}</span></td>
-      <td class="n">{{ r.p_lost }}</td><td class="n">{{ r.drop_db }}</td><td class="n">{{ r.length_m }}</td>
-      <td class="pin"><a href="{{ r.gmaps_url }}">↗ Maps</a></td>
-    </tr>{% endfor %}
-  </table>
-  <p class="note">{{ L.bridge_note }}</p>
-  {% else %}<p class="empty">{{ L.b_none }}</p>{% endif %}
-</section>
-
-{# ------------------------------------------------------------------ page 3: access #}
-<section class="sheet">
-  <h2>{{ L.p3_title }}</h2>
-  {% if maps.access and flags.any_access %}
-  <div class="map"><img src="data:image/png;base64,{{ maps.access }}" alt="{{ L.p3_title }}"></div>
-  <div class="legend">
-    <span><span class="ln" style="background:#dc2626"></span>{{ L.lg_failed }}</span>
-    <span><span class="dot" style="background:var(--cut)"></span>{{ L.lg_cut }}</span>
-    <span><span class="dot" style="background:var(--hosp)"></span>{{ L.lg_hosp_cut }}</span>
-    <span><span class="dot" style="background:var(--detour)"></span>{{ L.lg_detour }}</span>
-    <span><span class="dot" style="background:var(--ok)"></span>{{ L.lg_connected }}</span>
-    <span><span class="dot" style="background:#fff;border:1.5px solid #dc2626"></span>{{ L.lg_hospital }}</span>
-    <span><span class="sw" style="background:var(--ok)"></span>{{ L.lg_repair }}</span>
-  </div>
-  <p class="note">{{ L.access_note }}</p>
-  {% endif %}
-
-  <h3>{{ L.t_cut }}</h3>
-  {% if T.cut_off %}
-  <table>
-    <tr><th></th><th>{{ L.c_name }}</th><th>{{ L.c_status }}</th><th class="n">{{ L.c_bld }}</th><th class="n">{{ L.c_p }}</th><th class="n">{{ L.c_km }}</th><th>{{ L.c_hosp }}</th><th>{{ L.c_where }}</th></tr>
-    {% for r in T.cut_off %}<tr>
-      <td style="width:18px"><span class="rk" style="background:{% if r.status == 'cut off' %}var(--cut){% else %}var(--hosp){% endif %}">{{ r.rank }}</span></td>
-      <td><b>{{ r.name }}</b> <span class="note">{{ r.place }}</span></td>
-      <td><span class="tag {% if r.status == 'cut off' %}t-cut{% else %}t-hosp{% endif %}">{% if r.status == 'cut off' %}{{ L.st_cut_off }}{% else %}{{ L.st_hospital_cut_off }}{% endif %}</span></td>
-      <td class="n">{{ r.buildings }}</td><td class="n">{{ r.p_cut }}</td><td class="n">{{ r.km_pre }}</td>
-      <td>{{ r.hospital }}</td>
-      <td class="pin"><a href="{{ r.gmaps_url }}">{{ r.coords }} ↗</a></td>
-    </tr>{% endfor %}
-  </table>
-  {% else %}<p class="empty">{{ L.act_none }}</p>{% endif %}
-
-  <div class="cols">
-    <div>
-      <h3>{{ L.t_detour }}</h3>
-      {% if T.detours %}
-      <table>
-        <tr><th>{{ L.c_name }}</th><th class="n">{{ L.c_bld }}</th><th class="n">{{ L.d_hpre }}</th><th class="n">{{ L.d_hpost }}</th><th class="n">{{ L.d_delay }}</th><th></th></tr>
-        {% for r in T.detours %}<tr><td>{{ r.name }}</td><td class="n">{{ r.buildings }}</td><td class="n">{{ r.h_pre }}</td><td class="n">{{ r.h_post }}</td><td class="n"><b>{{ r.delay }}</b></td><td class="pin"><a href="{{ r.gmaps_url }}">↗</a></td></tr>{% endfor %}
-      </table>
-      {% else %}<p class="empty">{{ L.detour_none }}</p>{% endif %}
-    </div>
-    <div>
-      <h3>{{ L.t_repair }}</h3>
-      {% if T.repairs %}
-      <table>
-        <tr><th></th><th>{{ L.r_asset }}</th><th class="n">{{ L.r_settl }}</th><th class="n">{{ L.r_bld }}</th></tr>
-        {% for r in T.repairs %}<tr><td style="width:18px"><span class="rk sq" style="background:var(--ok)">{{ r.rank }}</span></td><td>{{ r.what }} <span class="note">{{ r.highway }}</span>{% if r.osm_url %} <a class="note" href="{{ r.osm_url }}">{{ r.osm_label }}</a>{% endif %}</td><td class="n">{{ r.settlements }}</td><td class="n">{{ r.buildings }}</td></tr>{% endfor %}
-      </table>
-      {% else %}<p class="empty">{{ L.repair_none }}</p>{% endif %}
-      <h3>{{ L.t_hosp }}</h3>
-      {% if T.hospitals %}
-      <table>
-        <tr><th>{{ L.h_name }}</th><th>{{ L.h_type }}</th><th>{{ L.h_access }}</th><th></th></tr>
-        {% for h in T.hospitals %}<tr><td>{{ h.name }}</td><td>{{ h.amenity }}</td><td>{{ h.status }}</td><td class="pin"><a href="{{ h.gmaps_url }}">↗ Maps</a></td></tr>{% endfor %}
-      </table>
-      {% endif %}
-    </div>
-  </div>
-  <p class="note">{{ L.cut_note }}</p>
-</section>
-
-{# ------------------------------------------------------------------ page 4: flood paths #}
-{% if flow %}
-<section class="sheet">
-  <h2>{{ L.p4_title }}</h2>
-  <p class="note" style="margin-bottom:6px">{{ L.fp_note }}</p>
-  {% for t in flow %}
-  <div style="break-inside: avoid; margin-bottom: 10px">
-    <h3>{{ L.fp_trace }} {{ t.meta.rank }} · <a href="{{ t.meta.start_url }}">{{ t.meta.start }} ↗</a></h3>
-    <dl class="kv" style="grid-template-columns: repeat(4, auto 1fr)">
-      <dt>{{ L.fp_len }}</dt><dd>{{ t.meta.length_km }}</dd>
-      <dt>{{ L.fp_drop }}</dt><dd>{{ t.meta.drop_m }}</dd>
-      <dt>{{ L.fp_settl }}</dt><dd>{{ t.meta.settlements }}</dd>
-      <dt>{{ L.fp_stop }}</dt><dd>{{ t.meta.stopped }}</dd>
-    </dl>
-    {% if maps.flow and maps.flow[loop.index0] %}<div class="map" style="margin-top:4px"><img src="data:image/png;base64,{{ maps.flow[loop.index0] }}" alt="{{ L.fp_trace }}"></div>{% endif %}
-    {% if t.rows %}
-    <table style="margin-top:4px">
-      <tr><th class="n">{{ L.fp_order }}</th><th>{{ L.c_name }}</th><th class="n">{{ L.fp_km }}</th><th class="n">{{ L.fp_dz }}</th><th>{{ L.fp_exp }}</th><th class="n">{{ L.fp_arr }}</th><th></th></tr>
-      {% for r in t.rows %}<tr><td class="n"><span class="rk" style="background:#7c3aed">{{ r.order }}</span></td><td>{{ r.name }}</td><td class="n">{{ r.km }}</td><td class="n">{{ r.dz }}</td><td>{{ r.exposure }}</td><td class="n">{{ r.arrival }}</td><td class="pin"><a href="{{ r.gmaps_url }}">↗</a></td></tr>{% endfor %}
-    </table>
-    {% endif %}
-  </div>
-  {% endfor %}
-</section>
-{% endif %}
-
-{% if F.change_before_day %}
-<section class="sheet">
-  <h2>{{ L.ch_title }}</h2>
-  <p class="note" style="font-size:8.2pt;color:var(--ink);margin-bottom:6px">{{ L.ch_intro_a }} <b>{{ F.change_before_day }}</b> {{ L.ch_intro_b }} <b>{{ F.change_after_day }}</b>. {{ L.ch_intro_c }} <b>{{ F.change_clear_pct }}%</b> {{ L.ch_intro_d }}</p>
-  {% if maps.change %}
-  <div class="map"><img src="data:image/png;base64,{{ maps.change }}" alt="{{ L.ch_title }}"></div>
-  <div class="legend">
-    <span><span class="ln" style="background:#cbd5e1;height:4px"></span>{{ L.ch_lg_before }}</span>
-    <span><span class="ln" style="background:#22d3ee;height:4px"></span>{{ L.ch_lg_after }}</span>
-    <span><span class="rk sq" style="background:var(--ink)">#</span> {{ L.ch_lg_rank }}</span>
-  </div>
-  <p class="note">{{ L.ch_map_note }}</p>
-  {% endif %}
-  <div class="cols" style="margin-top:6px">
-    <div>
-      <h3>{{ L.ch_t_measures }}</h3>
-      <table>
-        <tr><th>{{ L.ch_c_measure }}</th><th class="n">{{ L.ch_c_before }}</th><th class="n">{{ L.ch_c_after }}</th><th class="n">{{ L.ch_c_change }}</th></tr>
-        {% if F.change_width_before_m %}<tr><td>{{ L.ch_width }} <span class="note">({{ L.ch_width_note_a }} {{ F.change_stations }} {{ L.ch_width_note_b }})</span></td><td class="n">{{ F.change_width_before_m }} m</td><td class="n">{{ F.change_width_after_m }} m</td><td class="n"><b>{{ F.change_width_delta_m }} m</b></td></tr>{% endif %}
-        <tr><td>{{ L.ch_water }}</td><td class="n">{{ F.change_water_before_km2 }} km²</td><td class="n">{{ F.change_water_after_km2 }} km²</td><td class="n"><b>{{ F.change_water_pct or '—' }}</b></td></tr>
-        <tr><td>{{ L.ch_channel }}</td><td class="n">{{ F.change_channel_before_km2 }} km²</td><td class="n">{{ F.change_channel_after_km2 }} km²</td><td class="n"><b>{{ F.change_channel_pct or '—' }}</b></td></tr>
-      </table>
-      {% if F.change_shift_max_m %}
-      <dl class="kv" style="margin-top:6px">
-        <dt>{{ L.ch_widened }} {{ F.change_widened_threshold_m }} m</dt><dd>{{ F.change_widened }} / {{ F.change_stations }}</dd>
-        <dt>{{ L.ch_shift }}</dt><dd>{{ F.change_shift_max_m }} m · {{ L.ch_median }} {{ F.change_shift_median_m }} m</dd>
-      </dl>
-      {% endif %}
-    </div>
-    <div>
-      <h3>{{ L.ch_t_stations }}</h3>
-      {% if T.change_stations %}
-      <table>
-        <tr><th></th><th class="n">{{ L.ch_c_before }} (m)</th><th class="n">{{ L.ch_c_after }} (m)</th><th class="n">{{ L.ch_c_change }}</th><th class="n">{{ L.ch_s_moved }}</th><th></th></tr>
-        {% for r in T.change_stations %}<tr><td style="width:18px"><span class="rk sq" style="background:var(--ink)">{{ r.rank }}</span></td><td class="n">{{ r.before }}</td><td class="n">{{ r.after }}</td><td class="n"><b>{{ r.delta }}</b></td><td class="n">{{ r.shift }}</td><td class="pin"><a href="{{ r.gmaps_url }}">↗ Maps</a></td></tr>{% endfor %}
-      </table>
-      {% else %}<p class="empty">{{ L.ch_none }}</p>{% endif %}
-    </div>
-  </div>
-  <p class="note" style="margin-top:6px">{{ L.ch_caveat }}</p>
-</section>
-{% endif %}
-
-{# ------------------------------------------------------------------ last page: data and method #}
-<section class="sheet">
-  <h2>{{ L.p5_title }}</h2>
-  <div class="cols">
-    <div>
-      <h3>{{ L.t_data }}</h3>
-      <dl class="kv">
-        {% for s in T.s1 %}<dt>{{ F.sensor_s1 }} {{ s.track }}</dt><dd>{{ s.pre }} → {{ s.post }}</dd>{% endfor %}
-        <dt>{{ F.sensor_s2 }} {{ L.ds_s2 }}</dt><dd>{{ F.s2_pair }}</dd>
-        <dt>{{ L.ds_osm }}</dt><dd>{{ F.osm_snapshot }}</dd>
-        <dt>{{ L.ds_grid }}</dt><dd>{{ F.resolution_m }} m</dd>
-        <dt>{{ L.ds_members }}</dt><dd style="font-weight:500">{% for m in member_names %}{{ m }}{% if not loop.last %}<br>{% endif %}{% endfor %}</dd>
-      </dl>
-      <h3>{{ L.method }}</h3>
-      <p class="note" style="margin:0">{{ L.method_text }}</p>
-      <h3>{{ L.links }}</h3>
-      <div class="links">
-        <a href="provenance.json">{{ L.l_prov }} ↗</a>
-        <a href="../download.zip">{{ L.l_zip }} ↗</a>
-        <a href="sitrep_{{ other }}.html">{{ L.l_other }} ↗</a>
+      <div class="meta-pills">
+        <span><svg class="ico" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M7 1v2M7 11v2M1 7h2M11 7h2"/></svg>{{ L.target }}: <b>{{ F.target_location }}</b></span>
+        <span><svg class="ico" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="11" height="9.5" rx="1.5"/><path d="M1.5 5.5h11M4.5 1.5v2M9.5 1.5v2"/></svg>{{ L.event }}: <b>{{ F.event }}</b></span>
+        <span><svg class="ico" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5l5-2 5 2v7l-5 2-5-2v-7z"/></svg>{{ L.area }}: <b>{{ F.aoi_area_km2 }} km²</b></span>
+        <span><svg class="ico" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="5"/><path d="M7 4v3.2l2.2 1.3"/></svg>{{ L.generated }}: <b>{{ F.generated_utc }}</b></span>
       </div>
     </div>
-    <div>
-      <h3>{{ L.limits }}</h3>
-      <div class="box"><ul class="lim">{% for l in L.limits_list %}<li>{{ l }}</li>{% endfor %}</ul></div>
+
+    <!-- 2. Primary KPIs Banner -->
+    <div class="kpis-banner">
+      <!-- Hazard Footprint -->
+      <div class="kpi-card">
+        <div class="k-title">{{ L.k_hazard }}</div>
+        <div class="k-val" style="color:var(--debris)">{{ F.area_debris_km2 }} <span class="u">km²</span></div>
+        <div class="k-bar">
+          <span style="width:{{ bars.debris }}%;background:var(--debris)"></span>
+          <span style="width:{{ bars.flood }}%;background:var(--flood)"></span>
+          <span style="width:{{ bars.unobs }}%;background:var(--unobs)"></span>
+        </div>
+        <div class="k-sub">{{ L.k_hazard_sub }} {{ F.area_flood_km2 }} km² · {{ F.area_not_observable_km2 }} km² unobs</div>
+      </div>
+
+      <!-- Cut-off Settlements -->
+      <div class="kpi-card">
+        <div class="k-title">{{ L.k_cut }}</div>
+        <div class="k-val" style="color:var(--cut)">{{ F.settlements_cut_off }}</div>
+        <div class="k-bar">
+          <span style="width:{{ bars.cut }}%;background:var(--cut)"></span>
+          <span style="width:{{ bars.hosp }}%;background:var(--hosp)"></span>
+          <span style="width:{{ bars.detour }}%;background:var(--detour)"></span>
+        </div>
+        <div class="k-sub">{{ L.k_cut_sub }} {{ F.settlements_total }} · {{ F.settlements_hospital_cut_off }} hosp cut off</div>
+      </div>
+
+      <!-- Bridge Infrastructure Loss -->
+      <div class="kpi-card">
+        <div class="k-title">{{ L.k_bridges }}</div>
+        <div class="k-val" style="color:var(--hosp)">{{ F.bridges_lost }}</div>
+        <div class="k-bar">
+          <span style="width:{{ bars.br_lost }}%;background:var(--cut)"></span>
+          <span style="width:{{ bars.br_risk }}%;background:var(--hosp)"></span>
+        </div>
+        <div class="k-sub">{{ L.bl_br_a }} {{ F.bridges_total }} {{ L.k_bridges_sub }} {{ F.bridges_at_risk }}</div>
+      </div>
+
+      <!-- Exposed Assets & Buildings -->
+      <div class="kpi-card">
+        <div class="k-title">{{ L.k_bld }}</div>
+        <div class="k-val" style="color:#b45309">{{ F.buildings_hit }}</div>
+        <div class="k-bar"><span style="width:{{ bars.bld }}%;background:#b45309"></span></div>
+        <div class="k-sub">{{ L.bl_br_a }} {{ F.buildings_total }} ({{ F.buildings_in_cut_off }} in cut-off zones)</div>
+      </div>
+    </div>
+
+    <!-- 3. Bottom Line Threat Callout Box -->
+    <div class="alert-callout">
+      <div class="alert-head">{{ L.bottom_line }}</div>
+      <ul>
+        <li><b>{{ F.settlements_cut_off }}</b> {{ L.bl_cut_a }} {{ F.settlements_total }} {{ L.bl_cut_b }}
+          <b>{{ F.settlements_hospital_cut_off }}</b> {{ L.bl_hosp }} <b>{{ F.settlements_detour }}</b> {{ L.bl_detour }}
+          {% if flags.cut %}<b>{{ F.buildings_in_cut_off }}</b> {{ L.bl_bld }} {{ F.exposure_radius_m }} m {{ L.bl_bld_b }}{% endif %}</li>
+        <li><b>{{ F.bridges_lost }}</b> {{ L.bl_br_a }} {{ F.bridges_total }} {{ L.bl_br_b }} <b>{{ F.bridges_at_risk }}</b> {{ L.bl_br_c }}
+          <b>{{ F.network_failed_km }} km</b> {{ L.bl_road }}</li>
+        <li>{{ L.bl_hz_a }} <b>{{ F.area_debris_km2 }} km²</b> {{ L.bl_hz_b }} <b>{{ F.area_flood_km2 }} km²</b>;
+          <b>{{ F.buildings_hit }}</b> {{ L.bl_hz_c }} {{ F.buildings_total }} {{ L.bl_hz_d }}
+          {% if flags.unobs %}<b>{{ F.area_not_observable_km2 }} km²</b> {{ L.bl_unobs_a }} <b>{{ L.bl_unobs_b }}</b>{% endif %}</li>
+      </ul>
+    </div>
+
+    <!-- 4. Main 2-Column Split -->
+    <div class="main-split">
+      <!-- LEFT COLUMN: Physical Signal, Map & Hazard Breakdown -->
+      <div>
+        <!-- Situation Overview Map -->
+        {% if maps.overview %}
+        <div class="c-card" style="padding:4px">
+          <div class="map-box">
+            <img src="data:image/png;base64,{{ maps.overview }}" alt="{{ L.map_overview }}" style="{% if maps.satellite_pair %}max-height:48mm{% else %}max-height:80mm{% endif %}">
+          </div>
+          <div class="map-legend">
+            <span><span class="sw" style="background:var(--debris)"></span>{{ L.lg_debris }}</span>
+            <span><span class="sw" style="background:var(--flood)"></span>{{ L.lg_flood }}</span>
+            <span><span class="sw" style="background:var(--water)"></span>{{ L.lg_water }}</span>
+            <span><span class="sw" style="background:var(--unobs)"></span>{{ L.lg_unobs }}</span>
+            <span><span class="ln" style="background:#dc2626"></span>{{ L.lg_failed }}</span>
+            <span><span class="dot" style="background:var(--cut)"></span>{{ L.lg_cut }}</span>
+            <span><span class="dot" style="background:var(--hosp)"></span>{{ L.lg_hosp_cut }}</span>
+          </div>
+          {% if maps.satellite_pair %}
+          <div class="sat-corner-box">
+            <div class="sat-corner-title">{{ L.satellite_pair_title }}</div>
+            <img src="data:image/png;base64,{{ maps.satellite_pair }}" alt="Satellite Pre vs Post">
+          </div>
+          {% endif %}
+          <div class="card-note" style="font-size:5.8pt;color:var(--muted);margin-top:2px">
+            {{ L.map_overview_note }}
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- 1. Where did the flood hit, and what was damaged? -->
+        <div class="c-card">
+          <div class="c-head">
+            <span>{{ L.p2_title }}</span>
+            <span class="c-sub"><b>{{ F.observable_pct }}%</b> {{ L.observable }}</span>
+          </div>
+          <div class="card-ans">
+            <b>{{ F.area_debris_km2 }} km²</b> {{ L.h_debris }} · <b>{{ F.area_flood_km2 }} km²</b> {{ L.h_flood }} · <b>{{ F.buildings_hit }}</b> / {{ F.buildings_total }} {{ L.d_bld }} · <b>{{ F.network_failed_km }} km</b> {{ L.d_failed }}
+          </div>
+          <div class="metric-matrix">
+            <div><span>{{ L.h_debris }}</span><b>{{ F.area_debris_km2 }} km²</b></div>
+            <div><span>{{ L.h_flood }}</span><b>{{ F.area_flood_km2 }} km²</b></div>
+            <div><span>{{ L.h_water }}</span><b>{{ F.area_permanent_water_km2 }} km²</b></div>
+            <div><span>{{ L.h_unobs }}</span><b>{{ F.area_not_observable_km2 }} km²</b></div>
+          </div>
+          <div class="card-note">
+            <b>{{ L.t_conf }}:</b> {{ L.high }} <b>{{ F.area_tier_high_km2 }} km²</b> · {{ L.moderate }} <b>{{ F.area_tier_moderate_km2 }} km²</b> · {{ L.low }} <b>{{ F.area_tier_low_km2 }} km²</b>
+          </div>
+          <div class="card-note">
+            <b>{{ L.d_bld }}:</b> {{ L.high }} <b>{{ F.buildings_hit_high }}</b> · {{ L.moderate }} <b>{{ F.buildings_hit_moderate }}</b> · {{ L.low }} <b>{{ F.buildings_hit_low }}</b> · {{ L.d_bld_unobs }} <b>{{ F.buildings_unobserved }}</b>
+          </div>
+          {% if F.change_before_day %}
+          <div class="card-note" style="border-top:1px solid var(--line-subtle);padding-top:2px;margin-top:2px">
+            <b>{{ L.ch_title }}:</b> {{ F.change_before_day }} → {{ F.change_after_day }} ({{ F.change_clear_pct }}% clear)
+            {% if F.change_width_delta_m %} · Channel: <b>+{{ F.change_width_delta_m }} m</b>{% endif %}
+            {% if F.change_shift_max_m %} · Max shift: <b>{{ F.change_shift_max_m }} m</b>{% endif %}
+            {% if F.change_channel_pct %} · Bare channel: <b>{{ F.change_channel_pct }}</b>{% endif %}
+          </div>
+          {% endif %}
+        </div>
+
+        <!-- Road & Transport Network Severity -->
+        <div class="c-card">
+          <div class="c-head">
+            <span>{{ L.d_net }}</span>
+            <span class="c-sub"><b>{{ F.network_km }} km</b> network</span>
+          </div>
+          <div class="card-note">
+            • {{ L.d_failed }}: <b>{{ F.network_failed_km }} km</b> ({% if F.road_ways_hit %}<b>{{ F.road_ways_hit }}</b> {{ L.d_roads }}{% else %}severed{% endif %})<br>
+            • {{ L.d_net_unobs }}: <b>{{ F.network_unobserved_pct }}%</b> (steep terrain radar shadow)
+          </div>
+        </div>
+
+        {% if flow and flow|length > 0 %}
+        <!-- Debris Flow & Runout Traces -->
+        <div class="c-card">
+          <div class="c-head">
+            <span>{{ L.p4_title }}</span>
+            <span class="c-sub">{{ F.flowpath_count }} traces</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>{{ L.fp_trace }}</th>
+                <th class="n">{{ L.fp_len }}</th>
+                <th class="n">{{ L.fp_drop }}</th>
+                <th class="n">{{ L.fp_settl }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for fp in flow[:2] %}
+              <tr>
+                <td><b>#{{ fp.meta.rank }}</b> <span class="card-note">({{ fp.meta.stopped }})</span></td>
+                <td class="n">{{ fp.meta.length_km }} km</td>
+                <td class="n">{{ fp.meta.drop_m }} m</td>
+                <td class="n"><b>{{ fp.meta.settlements }}</b></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- RIGHT COLUMN: Human Isolation, Infrastructure Failure & Priority Actions -->
+      <div>
+        <!-- 1. Cut-off Settlements & Healthcare Access -->
+        <div class="c-card">
+          <div class="c-head">
+            <span>{{ L.p3_title }}</span>
+            <span class="c-sub"><b>{{ F.settlements_cut_off }}</b> {{ L.st_cut_off }} · <b>{{ F.settlements_hospital_cut_off }}</b> {{ L.st_hospital_cut_off }}</span>
+          </div>
+          <div class="card-ans">
+            {% if flags.cut %}<b>{{ F.settlements_cut_off }}</b> {{ L.bl_cut_a }} {{ F.settlements_total }} {{ L.bl_cut_b }}{% else %}{{ L.act_none }}{% endif %}
+            {% if flags.hosp %} <b>{{ F.settlements_hospital_cut_off }}</b> {{ L.bl_hosp }}{% endif %}
+          </div>
+          {% if T.cut_off %}
+          <table>
+            <thead>
+              <tr>
+                <th style="width:14px">#</th>
+                <th>{{ L.c_name }}</th>
+                <th>{{ L.c_status }}</th>
+                <th class="n">{{ L.c_bld }}</th>
+                <th class="n">{{ L.c_km }}</th>
+                <th style="width:28px"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in T.cut_off[:6 if (T.bridges and T.bridges|length > 0) else 7] %}
+              <tr>
+                <td><span class="rk" style="background:{% if r.status == 'cut off' %}var(--cut){% else %}var(--hosp){% endif %}">{{ r.rank }}</span></td>
+                <td><b>{{ r.name }}</b> <span class="card-note" style="display:inline">({{ r.place }})</span></td>
+                <td><span class="tag {% if r.status == 'cut off' %}t-cut{% else %}t-hosp{% endif %}">{% if r.status == 'cut off' %}{{ L.st_cut_off }}{% else %}{{ L.st_hospital_cut_off }}{% endif %}</span></td>
+                <td class="n"><b>{{ r.buildings }}</b></td>
+                <td class="n">{{ r.km_pre }} km</td>
+                <td class="pin"><a href="{{ r.gmaps_url }}">Maps<svg class="ico-ext" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 9l6-6M9 3H4.5M9 3v4.5"/></svg></a></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <div class="card-note" style="font-size:6pt">{{ L.cut_note }}</div>
+          {% else %}
+          <p class="empty">{{ L.act_none }}</p>
+          {% endif %}
+        </div>
+
+        <!-- 2. Bridges Likely Lost or At Risk (Technical Damage Table) -->
+        <div class="c-card">
+          <div class="c-head">
+            <span>{{ L.t_bridges }}</span>
+            <span class="c-sub">{{ F.bridges_lost }} lost · {{ F.bridges_at_risk }} at risk</span>
+          </div>
+          {% if T.bridges %}
+          <table>
+            <thead>
+              <tr>
+                <th>{{ L.b_name }}</th>
+                <th>{{ L.b_status }}</th>
+                <th class="n">{{ L.b_len }}</th>
+                <th class="n">{{ L.b_drop }}</th>
+                <th class="n">{{ L.b_p }}</th>
+                <th style="width:28px"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in T.bridges[:3] %}
+              <tr>
+                <td><b>{{ r.name }}</b>{% if r.osm_label %} <a class="card-note" style="display:inline" href="{{ r.osm_url }}">{{ r.osm_label }}</a>{% endif %}</td>
+                <td><span class="tag {% if r.status == 'likely lost' %}t-lost{% else %}t-risk{% endif %}">{{ r.status }}</span></td>
+                <td class="n">{{ r.length_m }} m</td>
+                <td class="n">{{ r.drop_db }} dB</td>
+                <td class="n"><b>{{ r.p_lost }}</b></td>
+                <td class="pin"><a href="{{ r.gmaps_url }}">Maps<svg class="ico-ext" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 9l6-6M9 3H4.5M9 3v4.5"/></svg></a></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <div class="card-note" style="font-size:6pt">{{ L.bridge_note }}</div>
+          {% else %}
+          <div class="status-strip">
+            <span class="tag t-ok">Standing</span> {{ L.b_none }} ({{ F.bridges_total }} mapped bridges checked)
+          </div>
+          {% endif %}
+        </div>
+
+        {% if T.detours and T.detours|length > 0 %}
+        <!-- 3. Detour Routes & Delays -->
+        <div class="c-card">
+          <div class="c-head">
+            <span>{{ L.t_detour }}</span>
+            <span class="c-sub">Max: <b>{{ F.max_detour_hours }} h</b></span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>{{ L.c_name }}</th>
+                <th class="n">{{ L.c_bld }}</th>
+                <th class="n">{{ L.d_hpre }}</th>
+                <th class="n">{{ L.d_hpost }}</th>
+                <th class="n">{{ L.d_delay }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for d in T.detours[:2] %}
+              <tr>
+                <td><b>{{ d.name }}</b></td>
+                <td class="n">{{ d.buildings }}</td>
+                <td class="n">{{ d.h_pre }} h</td>
+                <td class="n">{{ d.h_post }} h</td>
+                <td class="n"><b>+{{ d.delay }} h</b></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+
+        {% if T.hospitals and (not T.bridges or T.bridges|length == 0) %}
+        <!-- 4. Hospitals & Clinics Network Access -->
+        <div class="c-card">
+          <div class="c-head">
+            <span>{{ L.t_hosp }}</span>
+            <span class="c-sub">{{ F.hospitals_accessible }} accessible</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>{{ L.h_name }}</th>
+                <th>{{ L.h_type }}</th>
+                <th>{{ L.h_access }}</th>
+                <th style="width:28px"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for h in T.hospitals[:3] %}
+              <tr>
+                <td><b>{{ h.name }}</b></td>
+                <td><span class="card-note">{{ h.amenity }}</span></td>
+                <td><span class="tag t-ok">{{ h.status }}</span></td>
+                <td class="pin"><a href="{{ h.gmaps_url }}">Maps<svg class="ico-ext" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 9l6-6M9 3H4.5M9 3v4.5"/></svg></a></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+
+        <!-- 5. Network Reconnection Priorities -->
+        <div class="c-card">
+          <div class="c-head">
+            <span>{{ L.top_repairs }}</span>
+            <span class="c-sub">Optimal reconnection rank</span>
+          </div>
+          {% if T.repairs %}
+          <table>
+            <thead>
+              <tr>
+                <th style="width:14px">#</th>
+                <th>{{ L.r_asset }}</th>
+                <th class="n">{{ L.r_settl }}</th>
+                <th class="n">{{ L.r_bld }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in T.repairs[:3] %}
+              <tr>
+                <td><span class="rk sq" style="background:var(--ok)">{{ r.rank }}</span></td>
+                <td><b>{{ r.what }}</b> <span class="card-note" style="display:inline">({{ r.highway }})</span></td>
+                <td class="n">{{ r.settlements }}</td>
+                <td class="n"><b>{{ r.buildings }}</b></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <div class="status-strip">{{ L.repair_none }}</div>
+          {% endif %}
+        </div>
+
+        {% if T.facilities_hit %}
+        <!-- 6. Community Facilities Affected -->
+        <div class="c-card">
+          <div class="c-head">
+            <span>{{ L.t_fac }}</span>
+          </div>
+          <div class="card-note">
+            {% for f in T.facilities_hit[:2] %}• <b>{{ f.name }}</b> ({{ f.type }}) lies in {{ f.hazard }} zone{% if not loop.last %}<br>{% endif %}{% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
     </div>
   </div>
 
-  <h3>{{ L.credits }}</h3>
-  <div class="credits">
-    <div class="c"><div class="t">Copernicus Sentinel-1 / Sentinel-2</div>{{ F.attr_s }}</div>
-    <div class="c"><div class="t">{{ F.dem_name }}</div>{{ F.attr_dem }}</div>
-    <div class="c"><div class="t">OpenStreetMap</div>{{ F.attr_osm }}</div>
-    <div class="c"><div class="t">Kuro Siwo</div>{{ F.attr_train }}</div>
+  <!-- 5. Comprehensive Data Provenance & Caveats Box -->
+  <div class="footer-box">
+    <div class="f-col f-data">
+      <div class="f-head">{{ L.t_data }}</div>
+      <div class="f-kv-list">
+        <div class="f-kv">
+          <span class="f-lbl">{{ L.ds_sar }}:</span>
+          <span class="f-val">{% for s in T.s1 %}<b>{{ F.sensor_s1 }}</b> {{ s.track }} ({{ s.pre }} → {{ s.post }}){% if not loop.last %} · {% endif %}{% endfor %}</span>
+        </div>
+        <div class="f-kv">
+          <span class="f-lbl">{{ L.ds_opt }}:</span>
+          <span class="f-val"><b>{{ F.sensor_s2 }}</b> {{ F.s2_pair }}</span>
+        </div>
+        <div class="f-kv">
+          <span class="f-lbl">{{ L.ds_dem_lbl }}:</span>
+          <span class="f-val">{{ F.dem_name }} · {{ F.resolution_m }} m</span>
+        </div>
+        <div class="f-kv">
+          <span class="f-lbl">{{ L.ds_osm_lbl }}:</span>
+          <span class="f-val">{{ F.osm_snapshot }}</span>
+        </div>
+      </div>
+    </div>
+    <div class="f-col f-limits">
+      <div class="f-head">{{ L.limits }}</div>
+      <ul class="f-bullet-list">
+        {% for lim in L.sitrep_limits %}
+        <li>{{ lim }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="f-col f-credits">
+      <div class="f-head">{{ L.credits }}</div>
+      <div class="f-credits-content">
+        <div class="f-attr">{{ F.attr_s }} · {{ F.attr_dem }} · {{ F.attr_osm }}</div>
+        <div class="f-note">{{ L.footer }}</div>
+      </div>
+    </div>
   </div>
-  <div class="foot">{{ L.footer }} · {{ L.prototype }}</div>
 </section>
 
 </body>

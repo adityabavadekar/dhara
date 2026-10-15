@@ -118,7 +118,18 @@ def test_offline_pipeline(data_dir, monkeypatch):
     monkeypatch.setattr(pipeline.ohsome, "fetch_layer", _fake_osm)
     monkeypatch.setattr(pipeline.s2, "candidate_days", lambda *a, **k: [])
 
-    res = pipeline.run_job(pipeline.JobSpec(aoi=TINY, event="2026-08-26", use_ml=False))
+    # Offline: the faked Sentinel Hub fetch stands in for Sentinel-1 (our own chain needs the store).
+    # Fusion alone must produce both classes from the synthetic scene; the footprint detector
+    # (checked below) may remove the synthetic debris patch, which is not connected to a river.
+    res = pipeline.run_job(
+        pipeline.JobSpec(
+            aoi=TINY,
+            event="2026-08-26",
+            use_ml=False,
+            s1_source="sentinelhub",
+            use_detector=False,
+        )
+    )
     d = res.job_dir
     expected = ("classes.tif", "p_flood.tif", "p_debris.tif", "confidence.tif", "hand.tif")
     for f in (*expected, "buildings.parquet", "provenance.json", "summary.json"):
@@ -133,6 +144,13 @@ def test_offline_pipeline(data_dir, monkeypatch):
     assert (cls == F.FLOOD).any(), np.unique(cls, return_counts=True)
     assert (cls == F.DEBRIS).any(), np.unique(cls, return_counts=True)
     assert res.summary["buildings"]["count"] == 20
+
+    res2 = pipeline.run_job(
+        pipeline.JobSpec(aoi=TINY, event="2026-08-26", use_ml=False, s1_source="sentinelhub")
+    )
+    prov2 = json.loads((res2.job_dir / "provenance.json").read_text())
+    assert prov2["stages"]["fusion"]["status"] == "ok"
+    assert "changed_px" in prov2["stages"]["fusion"]["detector"]
 
     # The facts ledger must count settlements exactly as the settlements layer does.
     import geopandas as gpd

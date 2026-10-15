@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from dhara.members.classical import split_based_threshold, to_db
+from dhara.members.classical import fit_threshold, to_db
 
 FALLBACK_ABS_CHANGE_DB = 3.0
 
@@ -33,6 +33,7 @@ def run(
     tile: int,
     scale_db: float = 1.0,
     pre2: np.ndarray | None = None,
+    fit_mask: np.ndarray | None = None,
 ) -> DebrisResult:
     """pre/post: (2, H, W) linear γ⁰ [VV, VH]; observable: (H, W) bool.
 
@@ -44,7 +45,7 @@ def run(
         d = (post_db - pre_db).mean(axis=0)
     valid = observable & np.isfinite(d)
     a = np.abs(np.where(valid, d, 0.0))
-    t, diag = split_based_threshold(a, valid, tile=tile, side="high")
+    t, diag = fit_threshold(a, valid, fit_mask, tile=tile, side="high")
     meta: dict = {"abs_change_threshold": diag}
     if t is None or t < 1.5:
         diag["fallback_db"] = FALLBACK_ABS_CHANGE_DB

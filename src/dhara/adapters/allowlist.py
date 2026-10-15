@@ -1,7 +1,7 @@
 """Single network gate for the pipeline.
 
 Every outbound HTTP request in `dhara` must go through `guarded_request()`. It rejects any host,
-collection, DEM instance or OSM timestamp outside the competition data rules (PLAN.md §6).
+collection, DEM instance or OSM timestamp outside the competition data rules.
 """
 
 import re
@@ -14,6 +14,9 @@ import httpx
 
 from dhara.config import OSM_SNAPSHOT_MAX, get_settings
 
+# Timeout raised by guarded_request(), for callers that retry elsewhere (no httpx import needed).
+RequestTimeout = httpx.TimeoutException
+
 
 class ComplianceError(RuntimeError):
     """Raised when a request would use data outside the allowed inputs."""
@@ -24,6 +27,7 @@ ALLOWED_HOSTS: frozenset[str] = frozenset(
         "stac.dataspace.copernicus.eu",  # CDSE STAC catalogue (scene discovery)
         "identity.dataspace.copernicus.eu",  # CDSE OAuth token
         "sh.dataspace.copernicus.eu",  # CDSE Sentinel Hub Process API (S1, S2, COP-DEM)
+        "eodata.dataspace.copernicus.eu",  # CDSE S3: original Sentinel-1 GRD files only (see below)
         "api.ohsome.org",  # ohsome v1 (OSM history), snapshot pinned ≤ OSM_SNAPSHOT_MAX
         "api.heigit.org",  # ohsome v2 (path /ohsome-api/ only), snapshot pinned the same way
     }
@@ -35,6 +39,7 @@ LLM_HOSTS: dict[str, str] = {
     "api.groq.com": "groq",
     "generativelanguage.googleapis.com": "gemini",
     "api.openai.com": "openai",
+    "openrouter.ai": "openrouter",
 }
 
 # Raster (GDAL) sources, opened only through `guarded_raster_open()`. Copernicus DEM GLO-30 COG
@@ -42,6 +47,14 @@ LLM_HOSTS: dict[str, str] = {
 ALLOWED_RASTER_PREFIXES: tuple[str, ...] = (
     "/vsis3/eodata/auxdata/CopDEM_COG/copernicus-dem-30m/",
     "/vsicurl/https://copernicus-dem-30m.s3.eu-central-1.amazonaws.com/",
+    S1_GRD_RASTER_PREFIX := "/vsis3/eodata/Sentinel-1/SAR/IW_GRDH_1S-COG/",
+)
+# CDSE S3 objects readable over https: original Sentinel-1 IW GRD products (cloud-optimised SAFE),
+# their measurement images and annotation XMLs only. Nothing else in the bucket.
+S1_GRD_S3_PREFIX = "/eodata/Sentinel-1/SAR/IW_GRDH_1S-COG/"
+_S1_GRD_FILE = re.compile(
+    r"^/eodata/Sentinel-1/SAR/IW_GRDH_1S-COG/\d{4}/\d{2}/\d{2}/S1[A-D]_IW_GRDH_1S[DS][VH]_[0-9T_A-F]+_COG\.SAFE/"
+    r"(manifest\.safe|annotation/(calibration/)?[a-z0-9-]+\.xml|measurement/[a-z0-9-]+\.tiff)$"
 )
 
 # CDSE STAC collection ids.
@@ -144,8 +157,9 @@ def check_request(
         raise ComplianceError(f"Only https is allowed: {url}")
     host = parsed.hostname or ""
     if host in LLM_HOSTS:
-        selected = get_settings().llm_provider
-        if LLM_HOSTS[host] != selected:
+        settings = get_settings()
+        selected = settings.llm_provider
+        if LLM_HOSTS[host] != selected and LLM_HOSTS[host] not in settings.llm_fallback_providers:
             raise ComplianceError(
                 f"Assistant LLM host {host!r} is blocked: the active provider is {selected!r}. "
                 f"Set ASSISTANT_LLM={LLM_HOSTS[host]} and its API key to enable it."
@@ -159,6 +173,10 @@ def check_request(
         _check_sh(url, json)
     elif host in ("api.ohsome.org", "api.heigit.org"):
         _check_ohsome(url, params, data, json)
+    elif host == "eodata.dataspace.copernicus.eu" and not _S1_GRD_FILE.match(parsed.path):
+        raise ComplianceError(
+            f"Only original Sentinel-1 IW GRD files may be read from CDSE S3: {parsed.path}"
+        )
 
 
 _client: httpx.Client | None = None
@@ -186,6 +204,7 @@ def guarded_request(
     data: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
     retries: int = 3,
+    timeout_s: float | None = None,
 ) -> httpx.Response:
     """The only way pipeline code may reach the network. Retries 429/5xx with backoff."""
     import time
@@ -194,10 +213,23 @@ def guarded_request(
     client = _get_client()
     last: httpx.Response | None = None
     for attempt in range(retries + 1):
-        resp = client.request(method, url, json=json, params=params, data=data, headers=headers)
+        if timeout_s is not None:
+            resp = client.request(
+                method,
+                url,
+                json=json,
+                params=params,
+                data=data,
+                headers=headers,
+                timeout=timeout_s,
+            )
+        else:
+            resp = client.request(method, url, json=json, params=params, data=data, headers=headers)
         if resp.status_code not in (429, 500, 502, 503, 504):
             return resp
         last = resp
+        if attempt == retries:
+            return resp
         wait = float(resp.headers.get("retry-after", 2 ** (attempt + 1)))
         time.sleep(min(wait, 30.0))
     assert last is not None
@@ -207,6 +239,10 @@ def guarded_request(
 def check_raster_source(path: str) -> None:
     if not path.startswith(ALLOWED_RASTER_PREFIXES) or ".." in path:
         raise ComplianceError(f"Raster source not in allowlist: {path}")
+    if path.startswith(S1_GRD_RASTER_PREFIX):
+        if not _S1_GRD_FILE.match(path.removeprefix("/vsis3")) or "/measurement/" not in path:
+            raise ComplianceError(f"Only Sentinel-1 GRD measurement images allowed: {path}")
+        return
     if "Copernicus_DSM_COG_10_" not in path:
         raise ComplianceError(f"Only Copernicus DEM GLO-30 (10 arc-second) tiles allowed: {path}")
 

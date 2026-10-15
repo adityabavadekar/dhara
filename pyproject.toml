@@ -7,6 +7,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "anyascii>=0.3.3",
     "duckdb>=1.5.6",
     "fastapi>=0.143.0",
     "geopandas==1.2.0",
@@ -47,7 +48,6 @@ dhara = "dhara.cli:app"
 
 [tool.ruff]
 line-length = 100
-extend-exclude = ["project-clones"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
@@ -58,4 +58,4 @@ testpaths = ["tests"]
 markers = ["live: hits real CDSE/ohsome endpoints (needs .env)"]
 
 [tool.ty.src]
-exclude = ["project-clones", "training"]
+exclude = ["training"]

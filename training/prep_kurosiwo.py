@@ -28,6 +28,20 @@ def to_db(a: np.ndarray) -> np.ndarray:
     return 10.0 * np.log10(np.clip(a, 1e-5, None))
 
 
+# uint8 storage of dB: q = round((dB - DB_MIN) * DB_STEPS), 0.25 dB steps over [-45, +18.75] dB,
+# far finer than speckle. Halves disk use vs float16 (Kaggle counts file cache as memory).
+DB_MIN, DB_STEPS = -45.0, 4.0
+
+
+def quantize_db(x: np.ndarray) -> np.ndarray:
+    q = np.round((np.nan_to_num(x, nan=DB_MIN) - DB_MIN) * DB_STEPS)
+    return np.clip(q, 0, 255).astype(np.uint8)
+
+
+def dir_gb(path: Path) -> float:
+    return sum(f.stat().st_size for f in path.glob("*.npy")) / 1e9
+
+
 def dem_stats(dem: np.ndarray) -> tuple[float, float]:
     """Relief (p98 − p2, m) and mean slope (deg) of a 224² tile at 10 m."""
     d = dem[np.isfinite(dem)]
@@ -46,6 +60,11 @@ def stream_convert(
     max_samples: int = 0,
     per_event_cap: int = 200,
     chunk: int = 1500,
+    water_only: bool = False,
+    eval_events: frozenset[int] = frozenset(),
+    eval_cap: int = 200,
+    as_uint8: bool = False,
+    max_gb: float = 0.0,
 ) -> int:
     """Stream one shard and keep at most `per_event_cap` valid tiles per event (0 = no cap), so
     every event in the shard is represented. Writes <tag>_pNN_{x,y,meta} every `chunk` tiles."""
@@ -55,13 +74,18 @@ def stream_convert(
     cur: dict[str, bytes] = {}
     cur_key = None
     per_event: dict[int, int] = {}
-    state = {"part": 0, "total": 0}
+    state = {"part": 0, "total": 0, "stopped": False}
 
     def write_part():
         if not xs:
             return
         name = f"{tag}_p{state['part']:02d}"
-        np.save(out / f"{name}_x.npy", np.stack(xs))
+        if max_gb and dir_gb(out) > max_gb:
+            state["stopped"] = True
+            xs.clear(), ys.clear(), metas.clear()
+            return
+        x = np.stack(xs)
+        np.save(out / f"{name}_x.npy", quantize_db(x) if as_uint8 else x)
         np.save(out / f"{name}_y.npy", np.stack(ys))
         with open(out / f"{name}_meta.csv", "w", newline="") as fh:
             w = csv.DictWriter(fh, fieldnames=list(metas[0]))
@@ -76,7 +100,9 @@ def stream_convert(
             return
         info = json.loads(cur["info.json"])
         act = int(info["actid"])
-        if per_event_cap and per_event.get(act, 0) >= per_event_cap:
+        is_eval = act in eval_events
+        cap = eval_cap if is_eval else per_event_cap
+        if cap and per_event.get(act, 0) >= cap:
             return
         arrs = {k: np.load(io.BytesIO(v))[0] for k, v in cur.items() if k.endswith(".npy")}
         x = np.stack([to_db(arrs[f"{b}.npy"]) for b in BANDS]).astype(np.float16)
@@ -87,6 +113,8 @@ def stream_convert(
         y[~valid] = 255
         if valid.mean() < 0.5:  # training ignores these tiles anyway
             return
+        if water_only and not is_eval and not np.isin(y, (1, 2)).any():
+            return  # BlackBench protocol: training skips tiles without any water
         per_event[act] = per_event.get(act, 0) + 1
         relief, slope = dem_stats(arrs["dem.npy"])
         xs.append(x)
@@ -118,13 +146,18 @@ def stream_convert(
                 flush()
                 if max_samples and state["total"] + len(xs) >= max_samples:
                     break
+                if state["stopped"]:
+                    break
                 cur, cur_key = {}, key
             f = t.extractfile(m)
             if f is not None:
                 cur[field] = f.read()
         flush()
     write_part()
-    (out / f"{tag}.done").write_text(json.dumps({str(k): v for k, v in sorted(per_event.items())}))
+    done = {str(k): v for k, v in sorted(per_event.items())}
+    if state["stopped"]:
+        done["stopped_at_gb"] = max_gb
+    (out / f"{tag}.done").write_text(json.dumps(done))
     return state["total"]
 
 
@@ -136,6 +169,13 @@ def main() -> None:
     ap.add_argument("--max-samples", type=int, default=0, help="max tiles per shard (0 = all)")
     ap.add_argument("--per-event-cap", type=int, default=200, help="max tiles per event per shard")
     ap.add_argument("--shard", type=str, default=None, help="only this shard, e.g. train_GRD:3")
+    ap.add_argument(
+        "--water-only", action="store_true", help="training events: tiles with water only"
+    )
+    ap.add_argument("--eval-events", default="", help="comma list: all tiles, capped at --eval-cap")
+    ap.add_argument("--eval-cap", type=int, default=200)
+    ap.add_argument("--uint8", action="store_true", help="store dB quantised to uint8")
+    ap.add_argument("--max-gb", type=float, default=0.0, help="stop writing above this total size")
     args = ap.parse_args()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -156,7 +196,16 @@ def main() -> None:
             flush=True,
         )
         n = stream_convert(
-            url, out, tag, max_samples=args.max_samples, per_event_cap=args.per_event_cap
+            url,
+            out,
+            tag,
+            max_samples=args.max_samples,
+            per_event_cap=args.per_event_cap,
+            water_only=args.water_only,
+            eval_events=frozenset(int(e) for e in args.eval_events.split(",") if e),
+            eval_cap=args.eval_cap,
+            as_uint8=args.uint8,
+            max_gb=args.max_gb,
         )
         print(f"{tag}: successfully extracted {n} samples directly into arrays.", flush=True)
 

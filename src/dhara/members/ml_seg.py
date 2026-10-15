@@ -1,4 +1,4 @@
-"""ML member: UNet-ResNet50 trained on Kuro Siwo only (training/train.py), run with ONNX Runtime.
+"""ML member: UNet segmentation model trained on Kuro Siwo (training/train.py), run with ONNX Runtime.
 
 Input: σ⁰ (linear) for post, pre1 and pre2 passes on one relative orbit, as dB, standardised with
 the training norm. Output: temperature-calibrated class probabilities
@@ -88,10 +88,29 @@ def _starts(size: int) -> list[int]:
     return [*s, size - TILE]
 
 
+def _logits(model: Model, xb: np.ndarray, tta: bool) -> np.ndarray:
+    """Model logits for a batch (B, 6, TILE, TILE); with `tta`, the mean over the identity and
+    horizontal/vertical flips (each flipped back), a standard test-time augmentation."""
+    (lg,) = model.session.run(None, {"x": xb})
+    if not tta:
+        return lg
+    out = lg.copy()
+    for ax in (3, 2):
+        (f,) = model.session.run(None, {"x": np.ascontiguousarray(np.flip(xb, ax))})
+        out += np.flip(f, ax)
+    return out / 3.0
+
+
 def predict(
-    model: Model, post: np.ndarray, pre1: np.ndarray, pre2: np.ndarray, batch: int = 8
+    model: Model,
+    post: np.ndarray,
+    pre1: np.ndarray,
+    pre2: np.ndarray,
+    batch: int = 8,
+    tta: bool = False,
 ) -> MLResult:
-    """post/pre1/pre2: (2, H, W) linear σ⁰ [VV, VH] on the same grid. Returns probabilities (H, W)."""
+    """post/pre1/pre2: (2, H, W) linear σ⁰ [VV, VH] on the same grid (any projected CRS; the job's
+    local UTM in the pipeline). Returns probabilities (H, W). `tta`: average over flips."""
     x = np.concatenate([post, pre1, pre2]).astype(np.float32)
     valid = np.isfinite(x).all(0)
     x = 10.0 * np.log10(np.clip(np.nan_to_num(x, nan=1e-5), 1e-5, None))
@@ -108,7 +127,7 @@ def predict(
     for i in range(0, len(coords), batch):
         chunk = coords[i : i + batch]
         xb = np.stack([x[:, r : r + TILE, c : c + TILE] for r, c in chunk])
-        (logits,) = model.session.run(None, {"x": xb})
+        logits = _logits(model, xb, tta)
         z = logits / model.temperature
         z = z - z.max(1, keepdims=True)
         p = np.exp(z)

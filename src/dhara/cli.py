@@ -61,14 +61,28 @@ def run(
     bbox: BBox = None,
     geojson: GeoJSON = None,
     orbit: Annotated[int | None, typer.Option(help="Force a relative orbit")] = None,
+    s2: Annotated[bool, typer.Option(help="Use Sentinel-2 when clear")] = True,
+    ml: Annotated[bool, typer.Option(help="Use the segmentation model")] = True,
+    s2_max_post_days: Annotated[
+        int, typer.Option(help="Latest Sentinel-2 'after' image, days after the event")
+    ] = 20,
+    s1_source: Annotated[
+        str, typer.Option(help="Sentinel-1 processing: grd (own chain) or sentinelhub")
+    ] = "grd",
 ) -> None:
     """Run the pipeline end-to-end and write outputs to data/jobs/<job_id>/."""
     from dhara.jobs.pipeline import JobSpec, run_job
 
+    if s1_source not in ("grd", "sentinelhub"):
+        raise typer.BadParameter("--s1-source must be grd or sentinelhub")
     spec = JobSpec(
         aoi=_aoi(bbox, geojson),
         event=parse_event(event),
         relative_orbit=orbit,
+        use_s2=s2,
+        use_ml=ml,
+        s2_max_post_days=s2_max_post_days,
+        s1_source="sentinelhub" if s1_source == "sentinelhub" else "grd",
     )
     res = run_job(spec)
     typer.echo(f"job {res.job_id} → {res.job_dir}")

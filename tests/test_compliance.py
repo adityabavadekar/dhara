@@ -1,4 +1,4 @@
-"""Data-rule guardrails (PLAN.md §6). A failure here means a disqualification risk."""
+"""Data-rule guardrails. A failure here means a disqualification risk."""
 
 import re
 from datetime import date

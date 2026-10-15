@@ -6,12 +6,14 @@ data/cache/<aoi_hash>/, so a re-run on the same AOI only recomputes the analysis
 """
 
 import json
+import threading
 import time
 import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from pathlib import Path
+from typing import Literal
 
 import geopandas as gpd
 import numpy as np
@@ -30,12 +32,15 @@ from dhara.adapters.sentinel1 import Radiometry, S1Pass, fetch_pass
 from dhara.config import get_settings
 from dhara.damage.overlay import bridge_check, is_bridge, sample_features, tag
 from dhara.fusion import fuse as F
+from dhara.fusion.detector import DetectorParams, refine
 from dhara.geo import AOI, reproject
 from dhara.jobs.exports import export_layers
 from dhara.jobs.provenance import Provenance
 from dhara.jobs.scene_selection import S1Pair, find_s1_pairs
 from dhara.members import classical, debris, optical, zscore
 from dhara.network import graph as netgraph
+from dhara.osm_names import english_name
+from dhara.sar import grd
 from dhara.terrain import hydro
 from dhara.timeutil import EventTime, iso_utc
 
@@ -44,10 +49,15 @@ TERRAIN_BUFFER_M = 10_000.0
 # Road network and targets are analysed this far beyond the AOI so routes to hospitals and towns
 # outside the AOI exist; hazard is only known inside the AOI.
 NETWORK_BUFFER_M = 15_000.0
+# Height above nearest drainage (m) below which a pixel counts as valley floor.
+VALLEY_HAND_M = 30.0
 # Upstream area defining the major drainage network for the hydraulic-connectivity prior.
 MAJOR_CHANNEL_KM2 = 10.0
 
 Progress = Callable[[str, float], None]
+
+
+S1Source = Literal["grd", "sentinelhub"]
 
 
 class JobSpec(BaseModel):
@@ -58,7 +68,21 @@ class JobSpec(BaseModel):
     use_s2: bool = True
     use_ml: bool = True
     # Multi-date radar baseline (members.zscore); needs a second pre-event pass on the track.
-    use_zscore: bool = True
+    # Off by default: in our accuracy tests it halved recall without separating the flood run from
+    # a pre-flood control.
+    use_zscore: bool = False
+    # Fit the radar change thresholds on the valley floor (HAND ≤ VALLEY_HAND_M) instead of the
+    # whole scene.
+    valley_thresholds: bool = False
+    # Latest Sentinel-2 day used as the "after" image, in days after the event. A short window keeps
+    # later changes out; pre-flood control runs set it so that no image after the flood is used.
+    s2_max_post_days: int = 20
+    # Physical footprint rules after fusion (fusion.detector): terrain gate, corridor, valley-floor
+    # fill and swept channel.
+    use_detector: bool = True
+    # Sentinel-1 processing: our own chain from the original GRD product (default) or Sentinel
+    # Hub's server-side processing.
+    s1_source: S1Source = "grd"
 
 
 class JobResult(BaseModel):
@@ -86,13 +110,58 @@ def _read(path: Path) -> np.ndarray:
 
 
 def _cached_pass(
-    cache: Path, p: S1Pass, grid: Grid, radiometry: Radiometry, geom: bool
+    cache: Path,
+    p: S1Pass,
+    grid: Grid,
+    radiometry: Radiometry,
+    geom: bool,
+    source: S1Source = "grd",
 ) -> np.ndarray:
-    path = cache / f"s1_{p.key}_{radiometry}{'_geom' if geom else ''}.tif"
+    """One pass on `grid` (local UTM), cached. `grd`: our own processing chain from the original
+    product (sar.grd); `sentinelhub`: server-side processing. If our chain fails on a pass, the
+    pass is taken from Sentinel Hub instead and the sidecar records why (reported in provenance)."""
+    suffix = "_grd" if source == "grd" else ""
+    path = cache / f"s1_{p.key}_{radiometry}{'_geom' if geom else ''}{suffix}.tif"
     if path.exists():
         return _read(path)
-    arr, _ = fetch_pass(p, grid, radiometry, with_geometry_bands=geom)
+    # One pass at a time per cache: the other radiometry of the same pass waits, then reads the
+    # file this run writes instead of processing the pass again.
+    with _pass_locks_guard:
+        lock = _pass_locks.setdefault((str(cache), p.key, source), threading.Lock())
+    with lock:
+        if path.exists():
+            return _read(path)
+        return _process_and_cache(cache, p, grid, radiometry, geom, source, path)
+
+
+_pass_locks: dict[tuple, threading.Lock] = {}
+_pass_locks_guard = threading.Lock()
+
+
+def _process_and_cache(cache, p, grid, radiometry, geom, source, path) -> np.ndarray:
+    note: dict = {"pass": p.key, "radiometry": radiometry, "route": source}
+    if source == "grd":
+        try:
+            dem, _ = fetch_dem(grid)
+            both, meta = grd.process_pass_all(p.scene_ids, grid, dem)
+            # One run gives both radiometries: cache all four variants so the other is a hit.
+            for rad, a4 in both.items():
+                for g4, a in ((True, a4), (False, a4[:2])):
+                    pth = cache / f"s1_{p.key}_{rad}{'_geom' if g4 else ''}_grd.tif"
+                    if pth != path and not pth.exists():
+                        write_cog(str(pth), a, grid, nodata=float("nan"))
+                        pth.with_suffix(".json").write_text(
+                            json.dumps(note | meta | {"radiometry": rad}, default=str)
+                        )
+            arr = both[radiometry] if geom else both[radiometry][:2]
+            note |= meta
+        except Exception as e:  # keep the job alive; the fallback is recorded, not hidden
+            arr, _ = fetch_pass(p, grid, radiometry, with_geometry_bands=geom)
+            note |= {"route": "sentinelhub (fallback)", "error": f"{type(e).__name__}: {e}"[:300]}
+    else:
+        arr, _ = fetch_pass(p, grid, radiometry, with_geometry_bands=geom)
     write_cog(str(path), arr, grid, nodata=float("nan"))
+    path.with_suffix(".json").write_text(json.dumps(note, default=str))
     return arr
 
 
@@ -213,31 +282,44 @@ def _scenes(spec: JobSpec, prov: Provenance) -> list[S1Pair]:
             for p in tracks
         ]
         prov.doc["parameters"]["s1_route"] = (
-            "CDSE Sentinel Hub Process API; orthorectified with COPERNICUS_30, LEE 5x5; "
-            "GAMMA0_TERRAIN for change members, SIGMA0_ELLIPSOID for the ML member"
-        )
+            "Own processing chain from the original GRD product on CDSE S3 (sar.grd): thermal "
+            "noise removal, calibration, Lee 5x5, Range-Doppler terrain correction and area-based "
+            "terrain flattening on Copernicus DEM GLO-30"
+            if spec.s1_source == "grd"
+            else "CDSE Sentinel Hub Process API; orthorectified with COPERNICUS_30, LEE 5x5"
+        ) + "; GAMMA0_TERRAIN for change members, SIGMA0_ELLIPSOID for the ML member"
     return tracks
 
 
-def _s1_members(tracks, cache, grid, in_aoi, prov, progress, use_zscore: bool = True):
+def _s1_members(
+    tracks,
+    cache,
+    grid,
+    in_aoi,
+    prov,
+    progress,
+    use_zscore: bool = False,
+    fit_mask=None,
+    source: S1Source = "grd",
+):
     evidence: list[F.Evidence] = []
     perm_water = np.zeros(in_aoi.shape, bool)
     with prov.stage("s1_members") as st:
         water_maps, change_maps, zc_maps, zw_maps = [], [], [], []
         obs_any = np.zeros(in_aoi.shape, bool)
         for k, pair in enumerate(tracks):
-            pre = _cached_pass(cache, pair.pre, grid, "GAMMA0_TERRAIN", False)
-            post_all = _cached_pass(cache, pair.post, grid, "GAMMA0_TERRAIN", True)
+            pre = _cached_pass(cache, pair.pre, grid, "GAMMA0_TERRAIN", False, source)
+            post_all = _cached_pass(cache, pair.post, grid, "GAMMA0_TERRAIN", True, source)
             post, shadow = post_all[:2], post_all[3]
             obs = in_aoi & np.isfinite(shadow) & (np.nan_to_num(shadow) == 0)
             obs_any |= obs
             pre2 = (
-                _cached_pass(cache, pair.pre2, grid, "GAMMA0_TERRAIN", False)
+                _cached_pass(cache, pair.pre2, grid, "GAMMA0_TERRAIN", False, source)
                 if pair.pre2 is not None
                 else None
             )
-            cr = classical.run(pre, post, obs)
-            dr = debris.run(pre, post, obs, tile=cr.meta["tile_px"], pre2=pre2)
+            cr = classical.run(pre, post, obs, fit_mask=fit_mask)
+            dr = debris.run(pre, post, obs, tile=cr.meta["tile_px"], pre2=pre2, fit_mask=fit_mask)
             water_maps.append(cr.p_flood)
             change_maps.append(dr.p_change)
             perm_water |= cr.permanent_water
@@ -266,7 +348,7 @@ def _s1_members(tracks, cache, grid, in_aoi, prov, progress, use_zscore: bool = 
     return evidence, perm_water
 
 
-def _ml_member(tracks, cache, grid, in_aoi, prov) -> F.Evidence | None:
+def _ml_member(tracks, cache, grid, in_aoi, prov, source: S1Source = "grd") -> F.Evidence | None:
     from dhara.members import ml_seg
 
     with prov.stage("ml_member") as st:
@@ -276,14 +358,14 @@ def _ml_member(tracks, cache, grid, in_aoi, prov) -> F.Evidence | None:
             return None
         maps = []
         for pair in tracks:
-            post = _cached_pass(cache, pair.post, grid, "SIGMA0_ELLIPSOID", False)
-            pre = _cached_pass(cache, pair.pre, grid, "SIGMA0_ELLIPSOID", False)
+            post = _cached_pass(cache, pair.post, grid, "SIGMA0_ELLIPSOID", False, source)
+            pre = _cached_pass(cache, pair.pre, grid, "SIGMA0_ELLIPSOID", False, source)
             pre2 = (
-                _cached_pass(cache, pair.pre2, grid, "SIGMA0_ELLIPSOID", False)
+                _cached_pass(cache, pair.pre2, grid, "SIGMA0_ELLIPSOID", False, source)
                 if pair.pre2
                 else pre
             )
-            geom = _cached_pass(cache, pair.post, grid, "GAMMA0_TERRAIN", True)
+            geom = _cached_pass(cache, pair.post, grid, "GAMMA0_TERRAIN", True, source)
             obs = in_aoi & (np.nan_to_num(geom[3], nan=1) == 0)
             p = ml_seg.predict(model, post, pre, pre2).p_flood
             maps.append(np.where(obs, p, np.nan).astype(np.float32))
@@ -294,12 +376,23 @@ def _ml_member(tracks, cache, grid, in_aoi, prov) -> F.Evidence | None:
 def select_s2(spec: JobSpec, cache: Path, grid: Grid) -> s2.S2Pair:
     """Choose the clearest S2 pair (AOI cloud fraction) and download it into the cache."""
     cands = s2.candidate_days(spec.aoi, spec.event)
+    ev_day = spec.event.date() if isinstance(spec.event, datetime) else spec.event
+    cands = [c for c in cands if (c.day - ev_day).days <= spec.s2_max_post_days]
     g60 = Grid.snapped(grid.crs, grid.bounds, 60.0)
     in60 = aoi_mask(spec.aoi, g60)
+    # Cloud fractions are cached per AOI (keyed by day and scene ids), so re-runs spend no quota.
+    known_path = cache / "s2_cloud.json"
+    known = json.loads(known_path.read_text()) if known_path.exists() else {}
+    key = lambda c: f"{c.day.isoformat()}|{','.join(sorted(c.scene_ids))}"  # noqa: E731
+    todo = [c for c in cands if key(c) not in known]
     with ThreadPoolExecutor(max_workers=6) as pool:
-        fr = list(pool.map(lambda c: s2.aoi_cloud_fraction(c, g60, in60), cands))
-    for c, f in zip(cands, fr, strict=True):
-        c.aoi_cloud_fraction = round(f, 4)
+        fr = list(pool.map(lambda c: s2.aoi_cloud_fraction(c, g60, in60), todo))
+    for c, f in zip(todo, fr, strict=True):
+        known[key(c)] = round(f, 4)
+    if todo:
+        known_path.write_text(json.dumps(known, indent=1))
+    for c in cands:
+        c.aoi_cloud_fraction = known[key(c)]
     pair = s2.choose_pair(cands, spec.event)
     for sc in (pair.pre, pair.post):
         if sc is not None:
@@ -357,7 +450,9 @@ def _fetch_inputs(spec, cache, grid, tracks, net_bbox, snap, st) -> dict:
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         f_s1 = [
-            pool.submit(timed, f"s1:{p.key}:{r}", _cached_pass, cache, p, grid, r, g)
+            pool.submit(
+                timed, f"s1:{p.key}:{r}", _cached_pass, cache, p, grid, r, g, spec.s1_source
+            )
             for p, r, g in s1_jobs
         ]
         f_ter = pool.submit(timed, "terrain", cached_terrain, cache, grid)
@@ -401,6 +496,13 @@ def _run(spec: JobSpec, cache: Path, job_dir: Path, prov: Provenance, progress: 
     snap = ohsome.snapshot_date(spec.event)
     with prov.stage("fetch_inputs") as st:
         fetched = _fetch_inputs(spec, cache, grid, tracks, net_bbox, snap, st)
+    # How each pass was processed (route, geoid offset, terrain fit, or why it fell back).
+    keys = {p.key for pair in tracks for p in (pair.pre, pair.post, pair.pre2) if p is not None}
+    prov.doc["data_sources"]["s1_processing"] = [
+        json.loads(f.read_text())
+        for f in sorted(cache.glob("s1_*.json"))
+        if any(k in f.name for k in keys) and (("_grd" in f.name) == (spec.s1_source == "grd"))
+    ]
 
     progress("terrain", 0.4)
     with prov.stage("terrain") as st:
@@ -422,9 +524,14 @@ def _run(spec: JobSpec, cache: Path, job_dir: Path, prov: Provenance, progress: 
     write_cog(str(job_dir / "slope.tif"), slope, grid, nodata=float("nan"))
 
     progress("sentinel1", 0.2)
-    evidence, perm_water = _s1_members(tracks, cache, grid, in_aoi, prov, progress, spec.use_zscore)
+    valley = None
+    if spec.valley_thresholds:
+        valley = np.nan_to_num(hand, nan=np.inf) <= VALLEY_HAND_M
+    evidence, perm_water = _s1_members(
+        tracks, cache, grid, in_aoi, prov, progress, spec.use_zscore, valley, spec.s1_source
+    )
     if spec.use_ml:
-        ml = _ml_member(tracks, cache, grid, in_aoi, prov)
+        ml = _ml_member(tracks, cache, grid, in_aoi, prov, spec.s1_source)
         if ml is not None:
             evidence.append(ml)
 
@@ -445,6 +552,12 @@ def _run(spec: JobSpec, cache: Path, job_dir: Path, prov: Provenance, progress: 
     progress("fusion", 0.6)
     with prov.stage("fusion") as st:
         fr = F.fuse(evidence, hand, slope, in_aoi, perm_water, major_channels=major)
+        if spec.use_detector:
+            prm = DetectorParams()
+            fr.classes, fr.confidence, det = refine(
+                fr.classes, fr.confidence, fr.p_flood, fr.p_debris, hand, slope, major, prm
+            )
+            st["detector"] = {"params": prm.model_dump(), "changed_px": det}
         px_km2 = grid.res**2 / 1e6
         st["area_km2"] = {
             n: round(float((fr.classes == c).sum()) * px_km2, 3) for c, n in F.CLASS_NAMES.items()
@@ -464,6 +577,7 @@ def _run(spec: JobSpec, cache: Path, job_dir: Path, prov: Provenance, progress: 
                 nodata=nan,
             )
         write_cog(str(job_dir / "n_observing.tif"), fr.n_observing, grid, nodata=None)
+        write_cog(str(job_dir / "perm_water.tif"), perm_water.astype(np.uint8), grid, nodata=None)
         for e in evidence:
             write_cog(
                 str(job_dir / f"member_{e.name}.tif"),
@@ -518,12 +632,21 @@ def _run(spec: JobSpec, cache: Path, job_dir: Path, prov: Provenance, progress: 
         bridges = bridges[bridges.intersects(aoi_box)] if len(bridges) else bridges
         vv_pairs = []
         for pair in tracks:
-            pre = _cached_pass(cache, pair.pre, grid, "GAMMA0_TERRAIN", False)
-            post = _cached_pass(cache, pair.post, grid, "GAMMA0_TERRAIN", True)
+            pre = _cached_pass(cache, pair.pre, grid, "GAMMA0_TERRAIN", False, spec.s1_source)
+            post = _cached_pass(cache, pair.post, grid, "GAMMA0_TERRAIN", True, spec.s1_source)
             vv_pairs.append((pre[0], post[0]))
         if len(bridges):
             bres = bridge_check(bridges, grid, p_any, vv_pairs)
-            bres["name"] = [tag(t, "name") or "" for t in bres["tags"]]
+            bres["name"] = [
+                english_name(
+                    json.loads(t) if isinstance(t, str) else (t or {}),
+                    "bridge:name:en",
+                    "bridge:name",
+                )
+                or (f"{tag(t, 'ref')} bridge" if tag(t, "ref") else "")
+                for t in bres["tags"]
+            ]
+            bres["ref"] = [tag(t, "ref") or "" for t in bres["tags"]]
             bres["bridge_type"] = [tag(t, "bridge") or "" for t in bres["tags"]]
             bres["highway"] = [tag(t, "highway") or "" for t in bres["tags"]]
             bres.to_parquet(job_dir / "bridges.parquet")

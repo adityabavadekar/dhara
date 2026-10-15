@@ -31,6 +31,7 @@ export function CutOff({ d }: { d: Data }) {
   const firstAffected = FILTERS.find((f) => (counts[f] ?? 0) > 0 && ['cut_off', 'hospital_cut_off', 'detour'].includes(f))
   const [filter, setFilter] = useState<string | 'all'>(firstAffected ?? 'all')
   const [q, setQ] = useState('')
+  const [visibleCount, setVisibleCount] = useState(300)
   const sel = app.selection
   const rows = d.settlements.filter(
     (s) => (filter === 'all' || s.status === filter) && nameMatches(s.name, q)
@@ -69,7 +70,7 @@ export function CutOff({ d }: { d: Data }) {
           <Empty>{q ? 'No settlement matches.' : 'None in this group.'}</Empty>
         ) : (
           <List className='max-h-[20rem] overflow-y-auto'>
-            {rows.slice(0, 300).map((s) => (
+            {rows.slice(0, visibleCount).map((s) => (
               <Row key={s.id} at={s.at} active={sel?.kind === 'settlement' && sel.props.osm_id === s.raw.osm_id} onClick={() => selectSettlement(s)}>
                 <div className='flex items-center gap-2'>
                   <span className='truncate font-medium'>{s.name}</span>
@@ -99,6 +100,11 @@ export function CutOff({ d }: { d: Data }) {
             ))}
           </List>
         )}
+        {rows.length > visibleCount && (
+          <button className='text-xs font-medium text-primary hover:underline' onClick={() => setVisibleCount((n) => n + 300)}>
+            Show {Math.min(300, rows.length - visibleCount)} more ({rows.length - visibleCount} remaining)
+          </button>
+        )}
         <p className='text-[0.6875rem] text-muted-foreground'>
           Ranked by severity, then by buildings within {t('exposure_radius_m') ?? '—'} m. Population is not recorded in the inputs.
         </p>
@@ -111,13 +117,13 @@ export function CutOff({ d }: { d: Data }) {
           <List>
             {d.repairs.slice(0, 10).map((r, i) => {
               const b = d.bridges.find((x) => x.id === r.osmId)
-              const s = d.settlements.find((x) => r.settlementNames.includes(x.name))
+              const road = d.roadFeatures.find((x) => String(x.raw.osm_id) === r.osmId)
               return (
                 <Row
                   key={r.osmId}
                   onClick={() => {
                     if (b) app.select({ kind: 'bridge', props: b.raw, lngLat: b.at }, 15)
-                    else if (s) selectSettlement(s)
+                    else if (road) app.select({ kind: 'road', props: road.raw, lngLat: road.at }, 15)
                   }}
                 >
                   <div className='flex items-center gap-2'>

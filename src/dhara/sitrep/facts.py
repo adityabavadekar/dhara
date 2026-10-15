@@ -13,6 +13,7 @@ import geopandas as gpd
 import pandas as pd
 
 from dhara.damage.change import WIDENED_M
+from dhara.osm_names import shown_name
 
 DEVANAGARI = str.maketrans("0123456789", "०१२३४५६७८९")
 ASCII = str.maketrans("०१२३४५६७८९", "0123456789")
@@ -58,6 +59,7 @@ def _read_gdf(p: Path) -> gpd.GeoDataFrame | None:
 
 
 def build(job_dir: Path) -> Facts:
+    """Build display facts from job outputs; confidence rasters use the job's local UTM CRS."""
     summary = json.loads((job_dir / "summary.json").read_text())
     prov = json.loads((job_dir / "provenance.json").read_text())
     f = Facts()
@@ -69,8 +71,41 @@ def build(job_dir: Path) -> Facts:
     f.add("aoi_area_km2", prov["stages"]["validate_aoi"]["area_km2"], "km²", decimals=1, source=P)
     f.add("resolution_m", prov["parameters"]["grid"]["res_m"], "m", source=P)
     f.add("osm_snapshot", summary["osm_snapshot"], source=S)
+
+    coords = prov.get("inputs", {}).get("aoi", {}).get("geojson", {}).get("coordinates", [[]])[0]
+    if coords:
+        lons = [c[0] for c in coords]
+        lats = [c[1] for c in coords]
+        c_lon, c_lat = sum(lons) / len(lons), sum(lats) / len(lats)
+        lat_txt = f"{abs(c_lat):.2f}°{'N' if c_lat >= 0 else 'S'}"
+        lon_txt = f"{abs(c_lon):.2f}°{'E' if c_lon >= 0 else 'W'}"
+        coord_txt = f"{lat_txt}, {lon_txt}"
+        f.add("target_lat", f"{abs(c_lat):.2f}", source=P)
+        f.add("target_lon", f"{abs(c_lon):.2f}", source=P)
+
+        top_name = ""
+        settl_p = job_dir / "settlements.parquet"
+        if settl_p.exists():
+            try:
+                sdf_all = gpd.read_parquet(settl_p)
+                in_aoi = sdf_all[sdf_all["in_aoi"]] if "in_aoi" in sdf_all.columns else sdf_all
+                named = [shown_name(n) for n in in_aoi["name"].tolist() if n and str(n).strip()]
+                if named:
+                    top_name = str(named[0]).strip()
+            except Exception:
+                pass
+        if top_name:
+            f.add("target_location", f"{top_name} ({coord_txt})", source=P)
+        else:
+            f.add("target_location", coord_txt, source=P)
+    else:
+        f.add("target_location", "Unknown AOI", source=P)
     tracks = prov["data_sources"].get("sentinel1") or []
     f.add("s1_track_count", len(tracks), source=P)
+    pre_dates = sorted({str(t["pre_start"])[:10] for t in tracks if t.get("pre_start")})
+    post_dates = sorted({str(t["post_start"])[:10] for t in tracks if t.get("post_start")})
+    f.add("s1_pre_dates", ", ".join(pre_dates) if pre_dates else "unknown", source=P)
+    f.add("s1_post_dates", ", ".join(post_dates) if post_dates else "unknown", source=P)
     f.tables["s1"] = [
         {
             "track": f"R{t['relative_orbit']:03d} {t['orbit_state']}",
@@ -94,6 +129,46 @@ def build(job_dir: Path) -> Facts:
         f.add(f"area_{k}_km2", a.get(k, 0.0), "km²", decimals=2, source=S)
     for k, v in summary.get("positive_km2_by_tier", {}).items():
         f.add(f"area_tier_{k}_km2", v, "km²", decimals=2, source=S)
+    class_path, confidence_path = job_dir / "classes.tif", job_dir / "confidence.tif"
+    if class_path.exists() and confidence_path.exists():
+        import rasterio
+
+        from dhara.fusion.fuse import FLOOD, TIER_HIGH, TIER_LOW, TIER_MOD
+
+        resolution_m = float(prov["parameters"]["grid"]["res_m"])
+        with rasterio.open(class_path) as src:
+            classes = src.read(1)
+        with rasterio.open(confidence_path) as src:
+            confidence = src.read(1)
+        if classes.shape == confidence.shape:
+            pixel_km2 = resolution_m**2 / 1_000_000
+            for name, tier in (("low", TIER_LOW), ("moderate", TIER_MOD), ("high", TIER_HIGH)):
+                area = float(((classes == FLOOD) & (confidence == tier)).sum()) * pixel_km2
+                f.add(
+                    f"flood_area_{name}_km2",
+                    area,
+                    "km²",
+                    decimals=2,
+                    source="classes.tif + confidence.tif",
+                )
+        else:
+            for name in ("low", "moderate", "high"):
+                f.add(
+                    f"flood_area_{name}_km2",
+                    None,
+                    "km²",
+                    source="classes.tif + confidence.tif",
+                    text="not available",
+                )
+    else:
+        for name in ("low", "moderate", "high"):
+            f.add(
+                f"flood_area_{name}_km2",
+                None,
+                "km²",
+                source="classes.tif + confidence.tif",
+                text="not available",
+            )
     obs = 100.0 * (1 - a.get("not_observable", 0.0) / max(sum(a.values()), 1e-9))
     f.add("observable_pct", obs, "%", decimals=1, source=S)
 
@@ -204,7 +279,7 @@ def build(job_dir: Path) -> Facts:
             lat_s, lon_s, coords_s, url_s = _coords(row)
             hosp_rows.append(
                 {
-                    "name": str(row.get("name") or "Unnamed health facility"),
+                    "name": str(shown_name(row.get("name")) or "Unnamed health facility"),
                     "amenity": str(row.get("amenity") or "clinic"),
                     "status": "Isolated" if row.get("is_isolated") else "Accessible",
                     "osm_id": str(row.get("osm_id") or "n/a"),
@@ -222,7 +297,8 @@ def build(job_dir: Path) -> Facts:
         lat_s, lon_s, coords_s, url_s = _coords(row)
         cut_rows.append(
             {
-                "name": row["name"] or "(unnamed)",
+                "name": shown_name(row["name"]) or "(unnamed)",
+                "name_ne": str(row.get("name_ne") or shown_name(row.get("name")) or ""),
                 "place": row["place"],
                 "status": row["status"].replace("_", " "),
                 "buildings": fmt_num(row["buildings_500m"]),
@@ -262,7 +338,7 @@ def build(job_dir: Path) -> Facts:
         {
             "rank": fmt_num(i + 1),
             "what": ("Bridge" if r.get("is_bridge") else "Road")
-            + (f" {r['name']}" if r.get("name") else ""),
+            + (f" {r['name']}" if shown_name(r.get("name")) else ""),
             "highway": r.get("highway") or "roadway",
             "settlements": fmt_num(r.get("settlements_reconnected", 0)),
             "buildings": fmt_num(r.get("buildings_reconnected", 0)),
@@ -278,7 +354,7 @@ def build(job_dir: Path) -> Facts:
     f.tables["bridge_repairs"] = [
         {
             "rank": fmt_num(i + 1),
-            "what": r.get("name") or r.get("highway") or "Bridge",
+            "what": shown_name(r.get("name")) or r.get("highway") or "Bridge",
             "settlements": fmt_num(r.get("settlements_reconnected", 0)),
             "buildings": fmt_num(r.get("buildings_reconnected", 0)),
             "osm_id": r.get("osm_id") or "",
@@ -300,7 +376,7 @@ def build(job_dir: Path) -> Facts:
             osm_u, osm_l = _osm_meta(row.get("osm_id"))
             bridge_rows.append(
                 {
-                    "name": str(row.get("name") or row.get("highway") or "Bridge"),
+                    "name": str(shown_name(row.get("name")) or row.get("highway") or "Bridge"),
                     "status": str(row.get("status") or "nominal").replace("_", " "),
                     "confidence": str(row.get("confidence") or "nominal"),
                     "p_lost": fmt_num(100 * row.get("p_lost"), 0) + "%"
@@ -335,7 +411,7 @@ def build(job_dir: Path) -> Facts:
             _, _, coords_s, url_s = _coords(row)
             det.append(
                 {
-                    "name": row["name"] or "(unnamed)",
+                    "name": shown_name(row["name"]) or "(unnamed)",
                     "buildings": fmt_num(row["buildings_500m"]),
                     "h_pre": fmt_num(row.get("hours_to_target_pre"), 1)
                     if pd.notna(row.get("hours_to_target_pre"))
@@ -363,8 +439,8 @@ def build(job_dir: Path) -> Facts:
             _, _, coords_s, url_s = _coords(row)
             fac.append(
                 {
-                    "name": str(row.get("name") or "")
-                    if str(row.get("name") or "") not in ("", "None")
+                    "name": str(shown_name(row.get("name")) or "")
+                    if str(shown_name(row.get("name")) or "") not in ("", "None")
                     else "(unnamed)",
                     "type": str(row["facility_type"]),
                     "hazard": str(row.get("hazard") or "n/a"),
@@ -378,7 +454,91 @@ def build(job_dir: Path) -> Facts:
 
     _flowpaths(f, job_dir, prov)
     _change(f, job_dir)
+    _verdict(f)
     return f
+
+
+def _verdict(f: Facts) -> None:
+    """Severity of the mapped impact, from corroborated evidence.
+
+    SEVERE and HIGH need high-confidence evidence (probability ≥ 0.8 and two or more methods
+    agree, see fusion), because single-pair radar change alone raises false alarms on hillsides
+    and river banks: on images taken before a flood it can still mark dozens of communities as
+    cut off. Counts built on low-confidence evidence can at most make a run MODERATE. The
+    thresholds are design choices for ranking runs, not calibrated against outcomes.
+
+    SEVERE    high-confidence flood/debris ≥ 1 km², or ≥ 250 buildings, or ≥ 5 bridges lost
+    HIGH      high-confidence flood/debris ≥ 0.1 km², or ≥ 25 buildings, or ≥ 2 bridges lost
+    MODERATE  any community cut off or without hospital access, ≥ 50 buildings, or ≥ 0.25 km²
+              mapped, on any confidence
+    LOW       otherwise
+    """
+
+    def _val(k: str) -> float:
+        it = f.items.get(k)
+        if it is None or not isinstance(it.value, int | float | str):
+            return 0.0
+        try:
+            return float(it.value)
+        except (ValueError, TypeError):
+            return 0.0
+
+    cut_off = int(_val("settlements_cut_off"))
+    hosp_cut_off = int(_val("settlements_hospital_cut_off"))
+    buildings_hit = int(_val("buildings_hit"))
+    hazard_km2 = _val("area_debris_km2") + _val("area_flood_km2")
+    tier_high = _val("area_tier_high_km2")
+    bld_high = int(_val("buildings_hit_high"))
+    br_high = int(_val("bridges_lost_high"))
+
+    def plural(n: int, one: str, many: str) -> str:
+        return f"{n:,} {one if n == 1 else many}"
+
+    if tier_high >= 1.0 or bld_high >= 250 or br_high >= 5:
+        level = "SEVERE"
+    elif tier_high >= 0.1 or bld_high >= 25 or br_high >= 2:
+        level = "HIGH"
+    elif cut_off > 0 or hosp_cut_off > 0 or buildings_hit >= 50 or hazard_km2 >= 0.25:
+        level = "MODERATE"
+    else:
+        level = "LOW"
+
+    if level in ("SEVERE", "HIGH"):
+        parts = []
+        if bld_high:
+            parts.append(plural(bld_high, "building", "buildings") + " in high-confidence damage")
+        if br_high:
+            parts.append(plural(br_high, "bridge", "bridges") + " likely lost (high confidence)")
+        if cut_off:
+            parts.append(plural(cut_off, "community", "communities") + " cut off")
+        headline = " · ".join(parts) or f"{tier_high:.2f} km² of high-confidence flood or debris"
+        parts_ne = []
+        if bld_high:
+            parts_ne.append(f"{bld_high:,} भवन उच्च विश्वासका साथ क्षतिग्रस्त")
+        if br_high:
+            parts_ne.append(f"{br_high:,} पुल सम्भवतः बगेका (उच्च विश्वास)")
+        if cut_off:
+            parts_ne.append(f"{cut_off:,} बस्ती सम्पर्कविहीन")
+        headline_ne = " · ".join(parts_ne) or f"{tier_high:.2f} km² उच्च विश्वासको बाढी वा लेदो"
+    elif level == "MODERATE":
+        headline = (
+            "Mapped change is mostly low-confidence: "
+            + (plural(cut_off, "community", "communities") + " cut off, " if cut_off else "")
+            + plural(buildings_hit, "building", "buildings")
+            + " touched. Check before acting."
+        )
+        headline_ne = (
+            "नक्साङ्कित परिवर्तन प्रायः कम विश्वासको छ: "
+            + (f"{cut_off:,} बस्ती सम्पर्कविहीन, " if cut_off else "")
+            + f"{buildings_hit:,} भवन प्रभावित। कदम चाल्नुअघि पुष्टि गर्नुहोस्।"
+        )
+    else:
+        headline = "Little or no damage detected"
+        headline_ne = "क्षति थोरै वा देखिएन"
+
+    f.add("verdict_level", level, source="evidence classification")
+    f.add("verdict_headline", headline, source="evidence classification")
+    f.add("verdict_headline_ne", headline_ne, source="evidence classification")
 
 
 def _signed(v: float, decimals: int = 0) -> str:
@@ -500,7 +660,7 @@ def _flowpaths(f: Facts, job_dir: Path, prov: dict) -> None:
             srows.append(
                 {
                     "order": fmt_num(int(p.get("order", 0))),
-                    "name": p.get("name") or "(unnamed)",
+                    "name": shown_name(p.get("name")) or "(unnamed)",
                     "km": fmt_num(p.get("distance_km", 0), 1),
                     "dz": fmt_num(p.get("delta_z_river_m", 0), 0),
                     "exposure": EXPOSURE.get(str(p.get("exposure_status")), "n/a"),

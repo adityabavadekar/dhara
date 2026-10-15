@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Check, Loader2, MousePointerSquareDashed, Pentagon, Play, Satellite, Search, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -76,6 +76,9 @@ export function NewAnalysis() {
   const ready = !!app.aoi && !!event && !tooBig
 
   const preview = useMutation({ mutationFn: () => api.scenes(app.aoi!, event!) })
+  useEffect(() => {
+    preview.reset()
+  }, [app.aoi, event, preview.reset])
   const run = useMutation({
     mutationFn: () => api.createJob({ aoi: app.aoi!, event: event!, use_s2: useS2, use_ml: useMl && !!cfg.data?.ml_model_available }),
     onSuccess: ({ id }) => {

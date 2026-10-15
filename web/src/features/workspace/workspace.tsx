@@ -1,9 +1,9 @@
 import { useEffect } from 'react'
 import { AlertTriangle, Bot, Check, FileText, Loader2, Plus, RotateCcw } from 'lucide-react'
-import { ReportDialog } from '@/features/report/report-dialog'
 import { useApp, type View } from '@/context/app-state'
 import { bounds, jobAoiRing, jobLabel, useJobData } from '@/lib/job'
 import type { Polygon } from '@/lib/api'
+import { ReportDialog } from '@/features/report/report-dialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -68,16 +68,15 @@ export function Workspace() {
           <div className='min-w-0'>
             <div className='text-[0.6875rem] font-medium text-muted-foreground'>Flood event</div>
             <div className='truncate text-sm font-semibold tracking-tight'>{label.title}</div>
-            <div className='truncate text-[0.6875rem] text-muted-foreground'>
-              {label.sub}
-            </div>
+            <div className='truncate text-[0.6875rem] text-muted-foreground'>{label.sub}</div>
           </div>
         </div>
         {job.status === 'done' && (
           <div className='mt-2.5 grid grid-cols-2 gap-1.5'>
             <ReportDialog
+              jobId={job.id}
               trigger={
-                <Button variant='outline' size='sm' className='h-8 justify-start gap-1.5 text-xs'>
+                <Button variant='outline' size='sm' className='h-7 justify-start gap-1.5 text-xs'>
                   <FileText className='size-3.5' /> Situation report
                 </Button>
               }
@@ -85,7 +84,7 @@ export function Workspace() {
             <Button
               variant={app.assistantOpen ? 'secondary' : 'outline'}
               size='sm'
-              className='h-8 justify-start gap-1.5 text-xs'
+              className='h-7 justify-start gap-1.5 text-xs'
               onClick={() => app.setAssistantOpen(!app.assistantOpen)}
             >
               <Bot className='size-3.5' /> Ask about this event
@@ -103,13 +102,11 @@ export function Workspace() {
                   onClick={() => app.setView(t.id)}
                   className={cn(
                     'flex h-9 flex-1 items-center justify-center gap-1 border-b-2 px-1 text-xs font-medium whitespace-nowrap transition-colors',
-                    app.view === t.id ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'
+                    app.view === t.id ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
                   )}
                 >
                   {t.label}
-                  {c != null && c !== '0' && (
-                    <span className='rounded bg-red-600/10 px-1 text-[0.625rem] font-semibold tabular-nums text-red-700 dark:text-red-400'>{c}</span>
-                  )}
+                  {c != null && c !== '0' && <span className='rounded bg-red-600/10 px-1 text-[0.625rem] font-semibold tabular-nums text-red-700 dark:text-red-400'>{c}</span>}
                 </button>
               )
             })}
@@ -140,7 +137,8 @@ export function Workspace() {
         </div>
       )}
       {job.status === 'done' && (
-        <div className='min-h-0 flex-1 overflow-y-auto'>
+        // Keyed by tab, so each tab opens scrolled to the top.
+        <div key={app.view} className='min-h-0 flex-1 overflow-y-auto'>
           {!d.facts.loaded || d.loading ? (
             <div className='space-y-3 p-3'>
               <Skeleton className='h-28' />

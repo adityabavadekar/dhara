@@ -52,6 +52,8 @@ class Layers:
     hospitals: gpd.GeoDataFrame | None
     bridges: gpd.GeoDataFrame | None
     buildings: gpd.GeoDataFrame | None
+    dem_hs: np.ndarray | None = None
+    tier: np.ndarray | None = None  # confidence tier per pixel (0 none, 1 low, 2 moderate, 3 high)
 
 
 def _read(p: Path, crs) -> gpd.GeoDataFrame | None:
@@ -75,7 +77,26 @@ def load(job_dir: Path, max_px: int = 1600) -> Layers:
         geo = json.loads(prov.read_text()).get("inputs", {}).get("aoi", {}).get("geojson")
         if geo:
             aoi = gpd.GeoSeries([shape(geo)], crs=4326).to_crs(crs)
+
+    dem_hs = None
+    dem_p = job_dir / "dem.tif"
+    if dem_p.exists():
+        try:
+            with rasterio.open(dem_p) as ds_dem:
+                dem_arr = ds_dem.read(1)[::step, ::step].astype(np.float32)
+                from matplotlib.colors import LightSource
+
+                dem_hs = LightSource(azdeg=315, altdeg=45).hillshade(dem_arr, vert_exag=1.5)
+        except Exception:
+            dem_hs = None
+
+    tier = None
+    if (job_dir / "confidence.tif").exists():
+        with rasterio.open(job_dir / "confidence.tif") as ds_t:
+            tier = ds_t.read(1)[::step, ::step]
+
     return Layers(
+        tier=tier,
         cls=cls,
         extent=(b.left, b.right, b.bottom, b.top),
         crs=crs,
@@ -86,6 +107,7 @@ def load(job_dir: Path, max_px: int = 1600) -> Layers:
         hospitals=_read(job_dir / "hospitals.parquet", crs),
         bridges=_read(job_dir / "bridges.parquet", crs),
         buildings=_read(job_dir / "buildings.parquet", crs),
+        dem_hs=dem_hs,
     )
 
 
@@ -167,12 +189,12 @@ def _numbered(ax, x: float, y: float, n: int, color: str, square: bool = False) 
     )
 
 
-def _png(fig) -> str:
+def _png(fig, dpi: int = 150) -> str:
     for ax in fig.axes:  # geopandas adds CRS axis labels; the scale bar carries the units
         ax.set_xlabel("")
         ax.set_ylabel("")
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight", pad_inches=0.02, facecolor="white")
+    fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight", pad_inches=0.02, facecolor="white")
     plt.close(fig)
     return base64.b64encode(buf.getvalue()).decode()
 
@@ -184,14 +206,30 @@ def _size(extent, width: float = 7.2, max_h: float = 3.9) -> tuple[float, float]
     return (h / ratio, h)
 
 
-def _base(L: Layers, extent, figsize, grow: int = 0):
+def _base(L: Layers, extent, figsize, grow: int = 0, all_buildings: bool = True):
     fig, ax = plt.subplots(figsize=figsize)
-    ax.set_facecolor("#f8fafc")
+    ax.set_facecolor("#f1f5f9")
+    if L.dem_hs is not None:
+        ax.imshow(L.dem_hs, extent=L.extent, cmap="gray", alpha=0.30, zorder=1)
     ax.imshow(_hazard_rgba(_grow(L.cls, grow)), extent=L.extent, interpolation="nearest", zorder=2)
     if L.roads is not None:
-        L.roads.plot(ax=ax, color="#94a3b8", linewidth=0.35, zorder=3)
+        L.roads.plot(ax=ax, color="#64748b", linewidth=0.75, zorder=3)
+    if L.buildings is not None:
+        if all_buildings:  # off on whole-area maps: tens of thousands of dots hide everything else
+            L.buildings.plot(ax=ax, color="#94a3b8", alpha=0.6, markersize=1.8, zorder=4)
+        if "status" in L.buildings:
+            hit = L.buildings[L.buildings["status"] == "hit"]
+            if len(hit):
+                hit.plot(ax=ax, color="#b45309", markersize=3.0, zorder=5)
+    if L.failed is not None:
+        L.failed.plot(ax=ax, color="#dc2626", linewidth=1.8, zorder=6)
+    if L.bridges is not None:
+        for status, color in BRIDGE_COLOR.items():
+            sub = L.bridges[L.bridges["status"] == status]
+            if len(sub):
+                sub.plot(ax=ax, color=color, linewidth=2.4, zorder=7)
     if L.aoi is not None:
-        L.aoi.boundary.plot(ax=ax, color="#0284c7", linewidth=1.0, linestyle="--", zorder=4)
+        L.aoi.boundary.plot(ax=ax, color="#0284c7", linewidth=1.0, linestyle="--", zorder=8)
     ax.set_xlim(extent[0], extent[1])
     ax.set_ylim(extent[2], extent[3])
     ax.set_xticks([])
@@ -201,7 +239,7 @@ def _base(L: Layers, extent, figsize, grow: int = 0):
     return fig, ax
 
 
-def _settlements(ax, L: Layers, ranked_ids: list[str], size: float = 9) -> None:
+def _settlements(ax, L: Layers, ranked_ids: list[str], size: float = 14) -> None:
     s = L.settlements
     if s is None:
         return
@@ -211,11 +249,15 @@ def _settlements(ax, L: Layers, ranked_ids: list[str], size: float = 9) -> None:
             sub.plot(
                 ax=ax,
                 color=color,
-                markersize=size if status in ("cut_off", "hospital_cut_off") else size * 0.55,
+                markersize=size
+                if status in ("cut_off", "hospital_cut_off", "detour")
+                else size * 0.5,
                 edgecolor="white",
-                linewidth=0.3,
-                zorder=6,
+                linewidth=0.5,
+                zorder=9,
             )
+    # Only the ranked settlements are marked, with the rank numbers of the report's table (named
+    # labels for every settlement made whole-area maps unreadable).
     where = {
         str(o): (g, str(st)) for o, g, st in zip(s["osm_id"], s.geometry, s["status"], strict=True)
     }
@@ -229,19 +271,138 @@ def _hospitals(ax, L: Layers) -> None:
     if L.hospitals is None:
         return
     xs, ys = L.hospitals.geometry.x, L.hospitals.geometry.y
-    ax.scatter(xs, ys, s=38, c="white", edgecolors="#dc2626", linewidths=1.2, zorder=7)
-    ax.scatter(xs, ys, s=16, marker="+", c="#dc2626", linewidths=1.2, zorder=8)
+    ax.scatter(xs, ys, s=38, c="white", edgecolors="#dc2626", linewidths=1.2, zorder=10)
+    ax.scatter(xs, ys, s=16, marker="+", c="#dc2626", linewidths=1.2, zorder=11)
 
 
 def overview(L: Layers, cut_ids: list[str]) -> str:
-    """Whole area: hazard, failed links, settlements by access, hospitals; cut-off ranks numbered."""
-    fig, ax = _base(L, L.extent, _size(L.extent), grow=2)
+    """Whole area, drawn to stay readable at page size (local UTM): terrain shading, mapped flood
+    and debris (solid where corroborated, faint where low confidence), thin roads with impassable
+    sections in red, communities that lost access, health facilities as small crosses, and the
+    report table's top communities numbered. Every settlement and every building drawn at full
+    weight hid the map on large areas."""
+    # The road network extends past the analysed area, so ranked communities can lie outside it.
+    # Widen the frame to include nearby ones, but by at most half the area's size: communities
+    # further away are pinned to the frame edge with an arrow (the table gives their distance),
+    # so a far-off village does not shrink the analysed area to a corner of the map.
+    ext = list(L.extent)
+    reach = 0.5 * max(ext[1] - ext[0], ext[3] - ext[2])
+    lim = [ext[0] - reach, ext[1] + reach, ext[2] - reach, ext[3] + reach]
+    if L.settlements is not None and cut_ids:
+        pts = L.settlements[L.settlements["osm_id"].astype(str).isin(cut_ids)].geometry
+        if len(pts):
+            m = 600.0
+            ext = [
+                max(lim[0], min(ext[0], float(pts.x.min()) - m)),
+                min(lim[1], max(ext[1], float(pts.x.max()) + m)),
+                max(lim[2], min(ext[2], float(pts.y.min()) - m)),
+                min(lim[3], max(ext[3], float(pts.y.max()) + m)),
+            ]
+    # Pad the shorter side to the map box's proportions (one report column, up to 4.4 in tall),
+    # so the image fills the box instead of leaving empty bands beside it.
+    W, H = 3.9, 4.4
+    w, h = ext[1] - ext[0], ext[3] - ext[2]
+    if h / w > H / W:
+        grow = (h * W / H - w) / 2
+        ext[0], ext[1] = ext[0] - grow, ext[1] + grow
+    extent = (ext[0], ext[1], ext[2], ext[3])
+    # Drawn at about its printed size and print resolution, so the page does not rescale it and
+    # labels stay crisp.
+    fig, ax = plt.subplots(figsize=_size(extent, width=W, max_h=H), dpi=300)
+    ax.set_facecolor("#f8fafc")
+    if L.dem_hs is not None:
+        ax.imshow(L.dem_hs, extent=L.extent, cmap="gray", vmin=0, vmax=1, alpha=0.35, zorder=1)
+    rgba = _hazard_rgba(L.cls)
+    if L.tier is not None and L.tier.shape == L.cls.shape:
+        low = np.isin(L.cls, (F.FLOOD, F.DEBRIS)) & (L.tier <= 1)
+        rgba[low, 3] = 0.28
+    ax.imshow(rgba, extent=L.extent, interpolation="nearest", zorder=2)
+    if L.roads is not None:
+        L.roads.plot(ax=ax, color="#64748b", linewidth=0.25, alpha=0.55, zorder=3)
     if L.failed is not None:
-        L.failed.plot(ax=ax, color="#dc2626", linewidth=0.9, zorder=5)
-    _settlements(ax, L, cut_ids)
-    _hospitals(ax, L)
-    _scalebar(ax, L.extent)
-    return _png(fig)
+        L.failed.plot(ax=ax, color="#dc2626", linewidth=0.8, zorder=5)
+    if L.aoi is not None:
+        L.aoi.boundary.plot(ax=ax, color="#0284c7", linewidth=0.8, linestyle="--", zorder=6)
+    if L.settlements is not None:
+        st = L.settlements
+        for status in ("hospital_cut_off", "cut_off"):
+            sub = st[st["status"] == status]
+            if len(sub):
+                sub.plot(
+                    ax=ax, color=STATUS_COLOR[status], markersize=7, edgecolor="white",
+                    linewidth=0.3, zorder=8,
+                )  # fmt: skip
+    if L.hospitals is not None and len(L.hospitals):
+        ax.scatter(
+            L.hospitals.geometry.x, L.hospitals.geometry.y, s=9, marker="+", c="#991b1b",
+            linewidths=0.7, zorder=9,
+        )  # fmt: skip
+    ax.set_xlim(extent[0], extent[1])
+    ax.set_ylim(extent[2], extent[3])
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for sp in ax.spines.values():
+        sp.set_color("#cbd5e1")
+    _settlements_numbered(ax, L, cut_ids)
+    _scalebar(ax, extent)
+    return _png(fig, dpi=300)
+
+
+def _settlements_numbered(ax, L: Layers, ranked_ids: list[str]) -> None:
+    """Rank numbers of the report's table at their settlements, drawn above everything else.
+    Communities close together get their labels spread apart, with a leader line to each."""
+    if L.settlements is None:
+        return
+    s = L.settlements
+    where = {
+        str(o): (g, str(st)) for o, g, st in zip(s["osm_id"], s.geometry, s["status"], strict=True)
+    }
+    x0, x1 = ax.get_xlim()
+    y0, y1 = ax.get_ylim()
+    gap = 0.055 * max(x1 - x0, y1 - y0)  # minimum distance between two labels
+    placed: list[tuple[float, float]] = []
+    for i, oid in enumerate(ranked_ids, start=1):
+        if oid not in where:
+            continue
+        g, st = where[oid]
+        color = STATUS_COLOR.get(st, "#b91c1c")
+        # Beyond the frame: pin the marker inside the edge and point an arrow towards the place.
+        size = max(x1 - x0, y1 - y0)
+        pin = 0.075 * size
+        outside = not (x0 <= g.x <= x1 and y0 <= g.y <= y1)
+        ex = min(max(g.x, x0 + pin), x1 - pin)
+        ey = min(max(g.y, y0 + pin), y1 - pin)
+        if outside:
+            d = np.hypot(g.x - ex, g.y - ey)
+            ux, uy = (g.x - ex) / d, (g.y - ey) / d
+            ax.annotate(
+                "", xy=(ex + ux * pin * 0.9, ey + uy * pin * 0.9),
+                xytext=(ex + ux * pin * 0.3, ey + uy * pin * 0.3),
+                arrowprops={"arrowstyle": "-|>", "color": color, "lw": 1.0, "mutation_scale": 8},
+                zorder=29,
+            )  # fmt: skip
+            g = type(g)(ex, ey)
+        lx, ly = g.x, g.y
+        step = 0
+        while any(np.hypot(lx - px, ly - py) < gap for px, py in placed) and step < 12:
+            step += 1  # walk outwards on alternating sides, away from the frame edge
+            side = 1 if (g.x - x0) < (x1 - g.x) else -1
+            lx = g.x + side * gap * (1 + (step - 1) // 2) * 0.9
+            ly = g.y + (gap if step % 2 else -gap) * ((step + 1) // 2) * 0.6
+        inset = 0.03 * max(x1 - x0, y1 - y0)
+        lx = min(max(lx, x0 + inset), x1 - inset)  # a moved label stays inside the frame
+        ly = min(max(ly, y0 + inset), y1 - inset)
+        placed.append((lx, ly))
+        if (lx, ly) != (g.x, g.y):
+            ax.plot([g.x, lx], [g.y, ly], color=color, linewidth=0.6, zorder=29)
+            ax.scatter([g.x], [g.y], s=6, c=color, edgecolors="white", linewidths=0.3, zorder=29)
+        # A true circle of fixed size with the number centred on it (a text box shaped as a
+        # circle came out uneven and blurred once the map was scaled onto the page).
+        ax.scatter([lx], [ly], s=62, c=color, edgecolors="white", linewidths=0.9, zorder=30)
+        ax.text(
+            lx, ly, str(i), ha="center", va="center_baseline", fontsize=6.2, fontweight="bold",
+            color="white", zorder=31,
+        )  # fmt: skip
 
 
 def hazard_window(L: Layers, km: float = 6.0) -> tuple[float, float, float, float] | None:
@@ -401,3 +562,57 @@ def change_pair(job_dir: Path, half_km: float = 1.6) -> str | None:
     _scalebar(axes[0], win, k)
     fig.tight_layout(w_pad=0.5)
     return _png(fig)
+
+
+def satellite_pair(job_dir: Path) -> str | None:
+    """Side-by-side thumbnail pair of pre- and post-event satellite imagery (optical or SAR) in base64."""
+    layers_p = job_dir / "layers.json"
+    if not layers_p.exists():
+        return None
+    try:
+        layers = json.loads(layers_p.read_text())
+    except Exception:
+        return None
+    img = layers.get("imagery")
+    if not img or not (job_dir / img["before"]["url"]).exists():
+        img = layers.get("imagery_radar")
+    if not img or not (job_dir / img["before"]["url"]).exists():
+        return None
+
+    b_path = job_dir / img["before"]["url"]
+    a_path = job_dir / img["after"]["url"]
+    if not b_path.exists() or not a_path.exists():
+        return None
+    try:
+        import matplotlib.image as mpimg
+
+        b_img = mpimg.imread(b_path)
+        a_img = mpimg.imread(a_path)
+        # The web images are in Web Mercator, which stretches north-south by 1/cos(latitude);
+        # drawing pixels with aspect cos(latitude) restores true ground proportions.
+        lats = [c[1] for c in img["before"]["coordinates"]]
+        k = float(np.cos(np.radians((max(lats) + min(lats)) / 2)))
+        fig, axes = plt.subplots(1, 2, figsize=(5.6, 2.9), dpi=200)
+        for ax, data, d_str in zip(
+            axes, [b_img, a_img], [img["before"]["date"], img["after"]["date"]], strict=True
+        ):
+            ax.imshow(data, aspect=k)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            for spine in ax.spines.values():
+                spine.set_color("#cbd5e1")
+                spine.set_linewidth(0.8)
+            ax.text(
+                0.04,
+                0.08,
+                d_str,
+                transform=ax.transAxes,
+                fontsize=6.5,
+                fontweight="bold",
+                color="white",
+                bbox=dict(boxstyle="round,pad=0.18", fc="#0f172a", ec="none", alpha=0.75),
+            )
+        fig.tight_layout(pad=0.1, w_pad=0.2)
+        return _png(fig, dpi=220)
+    except Exception:
+        return None

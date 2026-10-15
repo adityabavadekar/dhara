@@ -7,8 +7,8 @@ import { useQuery } from '@tanstack/react-query'
 import { ChevronsLeftRight } from 'lucide-react'
 import { LAYERS, useApp, type LayerId, type Selection } from '@/context/app-state'
 import { useTheme } from '@/context/theme-provider'
-import { api, fileUrl, type Polygon } from '@/lib/api'
-import { bounds, parseSettlement, STATUS_COLOR, str, useJob } from '@/lib/job'
+import { api, fileUrl, layerUrl, type Polygon } from '@/lib/api'
+import { bounds, parseSettlement, STATUS_COLOR, str, useJob, useSettlementRoute } from '@/lib/job'
 import { formatArea, formatDistance, measurePathDistanceKm, measurePolygonAreaKm2 } from '@/lib/measure'
 import { Legend } from './legend'
 import { MapSearch } from './map-search'
@@ -62,8 +62,9 @@ const LAYER_MAP: Record<LayerId, string[]> = {
   roads: ['v-roads'],
   bridges: ['v-bridges-casing', 'v-bridges'],
   failed: ['v-failed'],
-  settlements: ['v-settlements', 'v-settlements-label', 'v-hlz', 'v-hlz-symbol'],
+  settlements: ['v-settlements', 'v-settlements-label'],
   hospitals: ['v-hospitals', 'v-hospitals-symbol', 'v-hospitals-label'],
+  helipads: ['v-hlz', 'v-hlz-symbol'],
   flowpath: ['f-corridor', 'f-path', 'f-pulse', 'f-settlements', 'f-settlements-label', 'f-start'],
 }
 
@@ -99,6 +100,7 @@ function setData(map: MLMap, id: string, data: GeoJSON.GeoJSON | string) {
 function addLayers(map: MLMap) {
   const w = (a: number, b: number) => ['interpolate', ['linear'], ['zoom'], 9, a, 15, b] as unknown as maplibregl.ExpressionSpecification
   const halo = { 'text-halo-color': '#ffffff', 'text-halo-width': 1.4 }
+  const placeLabelFont = ['Noto Sans CJK SC Regular', 'Open Sans Semibold']
   map.addLayer({ id: 'aoi-fill', type: 'fill', source: 'aoi', paint: { 'fill-color': '#0284c7', 'fill-opacity': 0.03 } })
   map.addLayer({ id: 'v-roads', type: 'line', source: 'roads', filter: ['==', ['get', 'status'], 'hit'], paint: { 'line-color': '#7c2d12', 'line-width': w(1, 3) } })
   map.addLayer({ id: 'v-failed', type: 'line', source: 'failed', paint: { 'line-color': '#dc2626', 'line-width': w(1.5, 4) } })
@@ -248,7 +250,7 @@ function addLayers(map: MLMap) {
     type: 'symbol',
     source: 'settlements',
     filter: ['any', ['in', ['get', 'status'], ['literal', ['cut_off', 'hospital_cut_off']]], ['>=', ['zoom'], 13]],
-    layout: { 'text-field': ['get', 'name'], 'text-font': ['Open Sans Semibold'], 'text-size': 11, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-optional': true },
+    layout: { 'text-field': ['get', 'name'], 'text-font': placeLabelFont, 'text-size': 11, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-optional': true },
     paint: { 'text-color': ['match', ['get', 'status'], 'cut_off', '#991b1b', 'hospital_cut_off', '#9a3412', '#334155'], ...halo },
   })
   map.addLayer({
@@ -256,7 +258,7 @@ function addLayers(map: MLMap) {
     type: 'symbol',
     source: 'hospitals',
     minzoom: 11,
-    layout: { 'text-field': ['get', 'name'], 'text-font': ['Open Sans Semibold'], 'text-size': 10.5, 'text-offset': [0, 1.3], 'text-anchor': 'top', 'text-optional': true },
+    layout: { 'text-field': ['get', 'name'], 'text-font': placeLabelFont, 'text-size': 10.5, 'text-offset': [0, 1.3], 'text-anchor': 'top', 'text-optional': true },
     paint: { 'text-color': '#991b1b', ...halo },
   })
   map.addLayer({
@@ -265,7 +267,7 @@ function addLayers(map: MLMap) {
     source: 'f-settlements',
     layout: {
       'text-field': ['concat', ['to-string', ['get', 'order']], '. ', ['get', 'name']],
-      'text-font': ['Open Sans Semibold'],
+      'text-font': placeLabelFont,
       'text-size': 11,
       'text-offset': [0.9, 0],
       'text-anchor': 'left',
@@ -580,7 +582,7 @@ export function MapView() {
     }
     for (const [src, name] of vec) {
       const v = m.vectors[name]
-      const url = v ? fileUrl(id, v.url) : (name === 'hlz' ? fileUrl(id, 'web/hlz.geojson') : null)
+      const url = v ? layerUrl(id, name, v.url) : null
       setData(map, src, url ?? EMPTY)
     }
     const hz = m.vectors.hazard_outline
@@ -704,7 +706,7 @@ export function MapView() {
         ]
         for (const [src, name] of vec) {
           const v = m.vectors[name]
-          const url = v ? fileUrl(id, v.url) : (name === 'hlz' ? fileUrl(id, 'web/hlz.geojson') : null)
+          const url = v ? layerUrl(id, name, v.url) : null
           setData(map2, src, url ?? EMPTY)
         }
       }
@@ -788,11 +790,12 @@ export function MapView() {
   }, [app.flowPoint, ready])
 
   // ---------------------------------------------------------------- selection and route
+  const selProps = useSettlementRoute(app.jobId, app.selection)
   const routeSettlement = useMemo(() => {
     const s = app.selection
-    if (!s || s.kind !== 'settlement') return null
-    return parseSettlement(s.props, s.lngLat)
-  }, [app.selection])
+    if (!s || s.kind !== 'settlement' || !selProps) return null
+    return parseSettlement(selProps, s.lngLat)
+  }, [app.selection, selProps])
 
   useEffect(() => {
     const map = mapRef.current

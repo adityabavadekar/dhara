@@ -10,10 +10,10 @@ export default defineConfig({
   optimizeDeps: { exclude: ['maplibre-gl'] },
   server: {
     port: 5173,
-    proxy: { '/api': { target: process.env.DHARA_API ?? 'http://127.0.0.1:8000', changeOrigin: true } },
+    proxy: { '/api': { target: process.env.DHARA_API ?? 'http://127.0.0.1:8000', changeOrigin: true, xfwd: true } },
   },
   preview: {
     port: 4173,
-    proxy: { '/api': { target: process.env.DHARA_API ?? 'http://127.0.0.1:8000', changeOrigin: true } },
+    proxy: { '/api': { target: process.env.DHARA_API ?? 'http://127.0.0.1:8000', changeOrigin: true, xfwd: true } },
   },
 })

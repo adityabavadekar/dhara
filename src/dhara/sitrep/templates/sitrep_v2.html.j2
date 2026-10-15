@@ -1,0 +1,937 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ L.title }} · {{ F.event }} (Variation 2 - Editorial)</title>
+<style>
+  @page {
+    size: A4 portrait;
+    margin: 5mm 8mm;
+    @bottom-left { content: "{{ L.prototype }}"; font: 6.2pt "Inter", sans-serif; color: #64748b; }
+    @bottom-right { content: "Dhara Situation Report · {{ F.job_id }}"; font: 6.2pt "Inter", sans-serif; color: #64748b; }
+  }
+  :root {
+    --ink: #0f172a;
+    --muted: #475569;
+    --muted-light: #64748b;
+    --line: #cbd5e1;
+    --line-subtle: #e2e8f0;
+    --soft: #f8fafc;
+    --soft-blue: #f1f5f9;
+    --hdr-bg: #f8fafc;
+    --debris: #b45309;
+    --debris-bg: #fef3c7;
+    --flood: #1d4ed8;
+    --flood-bg: #dbeafe;
+    --water: #0284c7;
+    --unobs: #94a3b8;
+    --cut: #b91c1c;
+    --cut-bg: #fee2e2;
+    --hosp: #ea580c;
+    --hosp-bg: #ffedd5;
+    --detour: #d97706;
+    --ok: #15803d;
+    --ok-bg: #dcfce7;
+    --link: #0369a1;
+  }
+  * { box-sizing: border-box; }
+  html { background: #cbd5e1; }
+  body {
+    margin: 0;
+    color: var(--ink);
+    font: 7.2pt/1.30 'IBM Plex Sans', 'IBM Plex Sans Devanagari', 'Noto Sans SC', 'Noto Sans CJK SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    letter-spacing: -0.011em;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .sheet {
+    background: #fff;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    padding: 5mm 8mm;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  @media print {
+    html { background: #fff; }
+    .sheet {
+      width: 100%;
+      height: 287mm;
+      max-height: 287mm;
+      min-height: 287mm;
+      margin: 0;
+      padding: 0;
+      box-shadow: none;
+      break-after: avoid;
+    }
+  }
+
+  /* Section Inspection Marker */
+  .inspect-tag {
+    display: none;
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    background: #0284c7;
+    color: #fff;
+    font-size: 5.6pt;
+    font-weight: 800;
+    padding: 1px 4px;
+    border-radius: 2px;
+    letter-spacing: .05em;
+    z-index: 50;
+    pointer-events: none;
+  }
+  .inspect-mode .inspect-tag { display: inline-block; }
+  .inspect-target { position: relative; }
+
+  /* Editorial Header */
+  .top-meta-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 6.8pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--muted-light);
+    margin-bottom: 2px;
+  }
+  .brand-tag {
+    color: var(--ink);
+    font-weight: 800;
+  }
+  .badge-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .proto-tag {
+    font-size: 6.0pt;
+    color: var(--muted-light);
+    border: 1px solid var(--line);
+    padding: 1.5px 5px;
+    border-radius: 2px;
+    font-weight: 700;
+    letter-spacing: .04em;
+  }
+  .v-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    border-radius: 2px;
+    padding: 1.5px 7px;
+    font-size: 6.8pt;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: #fff;
+  }
+  .v-severe { background: #b91c1c; }
+  .v-high { background: #ea580c; }
+  .v-moderate { background: #d97706; }
+  .v-low { background: #15803d; }
+
+  .title-row {
+    margin: 2px 0 3px;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 3px;
+  }
+  h1 {
+    font-size: 14.5pt;
+    font-weight: 800;
+    line-height: 1.15;
+    margin: 0;
+    letter-spacing: -.02em;
+    color: var(--ink);
+  }
+
+  .meta-subrow {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6.5px;
+    font-size: 6.5pt;
+    color: var(--muted);
+    margin-bottom: 3.5px;
+    white-space: nowrap;
+    line-height: 1.2;
+  }
+  .meta-subrow span b { color: var(--ink); font-weight: 700; }
+  .sep { color: var(--line); font-weight: 300; }
+
+  /* Cards & Section Headers */
+  .c-card {
+    border: 1px solid var(--line);
+    border-radius: 3.5px;
+    background: #fff;
+    overflow: hidden;
+    position: relative;
+    margin-bottom: 4px;
+  }
+  .c-head {
+    background: var(--hdr-bg);
+    border-bottom: 1px solid var(--line);
+    padding: 2.5px 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 6.7pt;
+    font-weight: 800;
+    letter-spacing: .04em;
+    color: var(--ink);
+    text-transform: uppercase;
+  }
+  .c-sub {
+    font-size: 6.0pt;
+    font-weight: 600;
+    color: var(--muted-light);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .c-sub b { color: var(--ink); }
+
+  /* Section 1: KEY FINDINGS (5-Column Metric Row) */
+  .findings-grid {
+    display: grid;
+    grid-template-columns: 1.15fr 1.35fr 0.95fr 1.2fr 1.05fr;
+    background: #fff;
+  }
+  .finding-col {
+    padding: 3.5px 6px;
+    border-right: 1px solid var(--line-subtle);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .finding-col:last-child { border-right: 0; }
+  .f-num {
+    font-size: 11pt;
+    font-weight: 800;
+    line-height: 1.1;
+    color: var(--ink);
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .f-num.c-cut { color: var(--cut); }
+  .f-num.c-hosp { color: var(--hosp); }
+  .f-num.c-detour { color: var(--cut); }
+  .f-num span { font-size: 7.2pt; font-weight: 700; }
+  .f-title {
+    font-size: 6.4pt;
+    font-weight: 700;
+    color: var(--ink);
+    line-height: 1.2;
+    margin-top: 1px;
+  }
+  .f-sub {
+    font-size: 5.7pt;
+    color: var(--muted-light);
+    line-height: 1.18;
+    margin-top: 1px;
+  }
+
+  /* Two Column Main Body */
+  .main-split {
+    display: grid;
+    grid-template-columns: 1.05fr 1.35fr;
+    gap: 6.5px;
+    align-items: start;
+  }
+  .col-stack {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Map Container */
+  .map-frame {
+    background: #f8fafc;
+    line-height: 0;
+    border-bottom: 1px solid var(--line-subtle);
+  }
+  .map-frame img {
+    width: 100%;
+    max-height: 84mm;
+    object-fit: contain;
+    display: block;
+  }
+  .map-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 6.5px;
+    font-size: 5.9pt;
+    padding: 2.5px 5px;
+    background: #fafafa;
+    border-bottom: 1px solid var(--line-subtle);
+    color: var(--muted);
+  }
+  .sw { display: inline-block; width: 6.5px; height: 6.5px; border-radius: 1.5px; margin-right: 2px; vertical-align: -0.5px; }
+  .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 2px; vertical-align: -0.5px; }
+  .ln { display: inline-block; width: 9px; height: 2px; margin-right: 2px; vertical-align: 1px; }
+
+  /* Narrative Caption */
+  .map-narrative {
+    padding: 2.5px 5px;
+    font-size: 5.9pt;
+    line-height: 1.22;
+    color: var(--muted);
+    background: #fff;
+    border-bottom: 1px solid var(--line-subtle);
+  }
+  .map-narrative b { color: var(--ink); }
+
+  /* Satellite Pre/Post Pair Strip */
+  .sat-pair-box {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2.5px 5px;
+    background: var(--soft);
+  }
+  .sat-pair-box img {
+    width: 44px;
+    height: auto;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .sat-pair-info {
+    font-size: 5.8pt;
+    line-height: 1.2;
+    color: var(--muted);
+  }
+  .sat-pair-info b { color: var(--ink); }
+
+  /* 4-Quadrant Metric Matrix */
+  .matrix-4 {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    background: #fff;
+    border-bottom: 1px solid var(--line-subtle);
+  }
+  .matrix-cell {
+    padding: 3px 5px;
+    border-right: 1px solid var(--line-subtle);
+  }
+  .matrix-cell:last-child { border-right: 0; }
+  .matrix-val {
+    font-size: 8.5pt;
+    font-weight: 800;
+    color: var(--ink);
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+  .matrix-lbl {
+    font-size: 5.8pt;
+    color: var(--muted);
+    text-transform: capitalize;
+    margin-top: 1px;
+  }
+  .matrix-foot {
+    padding: 2.5px 6px;
+    font-size: 6.0pt;
+    color: var(--muted);
+    line-height: 1.22;
+    background: var(--soft);
+  }
+  .matrix-foot b { color: var(--ink); }
+
+  /* Road Network Bullets */
+  .net-bullets {
+    padding: 3px 6px;
+    font-size: 6.1pt;
+    line-height: 1.25;
+    color: var(--muted);
+  }
+  .net-bullets div { margin-bottom: 1px; }
+  .net-bullets b { color: var(--ink); }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 6.6pt;
+    line-height: 1.22;
+  }
+  th, td {
+    padding: 2px 3.5px;
+    text-align: left;
+    border-bottom: 1px solid var(--line-subtle);
+    vertical-align: middle;
+  }
+  th {
+    color: var(--muted);
+    font-weight: 700;
+    font-size: 6.0pt;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    background: #f8fafc;
+    border-bottom: 1px solid var(--line);
+  }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+
+  .tag {
+    display: inline-block;
+    border-radius: 2px;
+    padding: 0.5px 4px;
+    font-size: 5.8pt;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .02em;
+  }
+  .t-cut { background: var(--cut-bg); color: var(--cut); }
+  .t-hosp { background: var(--hosp-bg); color: var(--hosp); }
+  .t-lost { background: var(--cut-bg); color: var(--cut); }
+  .t-risk { background: var(--debris-bg); color: var(--debris); }
+  .t-ok { background: var(--ok-bg); color: var(--ok); }
+  .pin {
+    width: 28px;
+    white-space: nowrap;
+    text-align: right;
+  }
+  .pin a {
+    color: var(--link);
+    text-decoration: none;
+    font-size: 6.0pt;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 1.5px;
+  }
+  .pin a:hover { text-decoration: underline; }
+  .ico-ext {
+    display: inline-block;
+    width: 5.5pt;
+    height: 5.5pt;
+    vertical-align: -0.5px;
+  }
+
+  .rk {
+    display: inline-block;
+    min-width: 12px;
+    height: 12px;
+    line-height: 12px;
+    text-align: center;
+    border-radius: 2px;
+    color: #fff;
+    font-size: 5.6pt;
+    font-weight: 800;
+  }
+  .status-box-empty {
+    padding: 3.5px 6px;
+    font-size: 6.2pt;
+    color: var(--muted);
+    background: var(--soft);
+  }
+  .table-foot-note {
+    font-size: 5.8pt;
+    color: var(--muted-light);
+    padding: 2px 6px;
+    text-align: right;
+    border-top: 1px solid var(--line-subtle);
+    background: var(--soft);
+  }
+
+  /* Pinned 3-Column Footer Box */
+  .footer-box {
+    margin-top: auto;
+    border: 1px solid var(--line);
+    border-radius: 3.5px;
+    background: var(--soft);
+    padding: 3.5px 6px;
+    display: grid;
+    grid-template-columns: 1.25fr 1fr 1.2fr;
+    gap: 7px;
+    font-size: 6.1pt;
+    color: #334155;
+    line-height: 1.23;
+  }
+  .footer-box .f-col {
+    display: flex;
+    flex-direction: column;
+  }
+  .f-head {
+    font-size: 6.3pt;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--ink);
+    margin-bottom: 2px;
+    padding-bottom: 1.5px;
+    border-bottom: 1px solid var(--line-subtle);
+  }
+  .f-kv-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5px;
+  }
+  .f-kv {
+    display: flex;
+    gap: 4px;
+    align-items: baseline;
+    font-size: 5.9pt;
+    line-height: 1.22;
+  }
+  .f-lbl {
+    color: var(--muted);
+    font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .f-val {
+    color: var(--ink);
+    word-break: break-word;
+  }
+  .f-bullet-list {
+    margin: 0;
+    padding-left: 10px;
+    font-size: 5.8pt;
+    line-height: 1.2;
+    color: var(--muted);
+    display: flex;
+    flex-direction: column;
+    gap: 1.5px;
+  }
+  .f-bullet-list li { padding-left: 1px; }
+  .f-credits-content {
+    font-size: 5.8pt;
+    line-height: 1.2;
+    color: var(--muted);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .f-attr { color: var(--ink); font-weight: 500; }
+  .f-note { color: #64748b; }
+</style>
+</head>
+<body>
+
+<section class="sheet">
+  <div>
+    <!-- SECTION 1: Editorial Header -->
+    <div class="header-block inspect-target">
+      <span class="inspect-tag">#1-HEADER</span>
+      <div class="top-meta-row">
+        <div>
+          <span class="brand-tag">DHARA</span>
+          <span class="sep">|</span>
+          <span>SITUATION REPORT</span>
+        </div>
+        <div class="badge-row">
+          <span class="proto-tag">{{ L.prototype }}</span>
+          {% if F.verdict_level %}
+          <span class="v-chip v-{{ F.verdict_level | lower }}">{{ F.verdict_level }}</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="title-row">
+        <h1>{{ L.title }}</h1>
+      </div>
+
+      <div class="meta-subrow">
+        <span>{{ L.target }}: <b>{{ F.target_location }}</b></span>
+        <span class="sep">|</span>
+        <span>{{ L.event }}: <b>{{ F.event }}</b></span>
+        <span class="sep">|</span>
+        <span>{{ L.area }}: <b>{{ F.aoi_area_km2 }} km²</b></span>
+        <span class="sep">|</span>
+        <span>{{ L.generated }}: <b>{{ F.generated_utc }}</b></span>
+        <span class="sep">|</span>
+        <span>OSM: <b>{{ F.osm_snapshot }}</b></span>
+        <span class="sep">|</span>
+        <span>Grid: <b>{{ F.resolution_m }} m</b></span>
+      </div>
+    </div>
+
+    <!-- SECTION 2: 1. KEY FINDINGS (5-Column Metric Row) -->
+    <div class="c-card inspect-target">
+      <span class="inspect-tag">#2-KPIS</span>
+      <div class="c-head">
+        <span>1. {{ L.t_kpis }}</span>
+        {% if F.verdict_headline %}
+        <span class="c-sub" style="color:var(--cut)"><b>{{ F.verdict_headline }}</b></span>
+        {% endif %}
+      </div>
+      <div class="findings-grid">
+        <!-- Metric 1: Flood & Debris -->
+        <div class="finding-col">
+          <div class="f-num">{{ F.area_debris_km2 }} <span>km²</span></div>
+          <div class="f-title">{{ L.kpi_hazard }}</div>
+          <div class="f-sub">Debris: {{ F.area_debris_km2 }} km²<br>New water: {{ F.area_flood_km2 }} km²</div>
+        </div>
+
+        <!-- Metric 2: Hospital Access Cut Off -->
+        <div class="finding-col">
+          <div class="f-num c-cut">{{ F.settlements_hospital_cut_off }}</div>
+          <div class="f-title">{% if F.settlements_cut_off|int > 0 %}Isolated Communities{% else %}No Hospital Road Access{% endif %}</div>
+          <div class="f-sub">{% if F.settlements_cut_off|int > 0 %}{{ F.settlements_cut_off }} totally cut off{% else %}out of {{ F.settlements_total }} mapped{% endif %}</div>
+        </div>
+
+        <!-- Metric 3: Bridges -->
+        <div class="finding-col">
+          <div class="f-num">{{ F.bridges_lost }}</div>
+          <div class="f-title">{{ L.kpi_bridges }}</div>
+          <div class="f-sub">of {{ F.bridges_total }} checked<br>({{ F.bridges_at_risk }} at risk)</div>
+        </div>
+
+        <!-- Metric 4: Buildings -->
+        <div class="finding-col">
+          <div class="f-num c-hosp">{{ F.buildings_hit }}</div>
+          <div class="f-title">{{ L.kpi_bld }}</div>
+          <div class="f-sub">of {{ F.buildings_total }} mapped<br>({{ F.buildings_in_cutoff_settlements }} in cut-off zones)</div>
+        </div>
+
+        <!-- Metric 5: Longer Routes / Detours -->
+        <div class="finding-col">
+          <div class="f-num c-detour">{{ F.settlements_detour }}</div>
+          <div class="f-title">Longer Route Only</div>
+          <div class="f-sub">Max extra time: {{ F.max_detour_hours }} h<br>all others normal</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAIN TWO COLUMN SPLIT -->
+    <div class="main-split">
+      <!-- LEFT COLUMN -->
+      <div class="col-stack">
+        <!-- 2. FLOOD AND DEBRIS EXTENT -->
+        <div class="c-card inspect-target">
+          <span class="inspect-tag">#4-MAP-IMAGERY</span>
+          <div class="c-head">
+            <span>2. {{ L.p_extent }}</span>
+            <span class="c-sub">{{ L.area }}: <b>{{ F.aoi_area_km2 }} km²</b> <span class="sep">|</span> {{ L.ds_grid }}: <b>{{ F.resolution_m }} m</b></span>
+          </div>
+          {% if maps.overview %}
+          <div class="map-frame">
+            <img src="data:image/png;base64,{{ maps.overview }}" alt="Flood & Debris Extent Map">
+          </div>
+          {% endif %}
+          <div class="map-legend">
+            <span><span class="sw" style="background:var(--debris)"></span>{{ L.leg_debris }}</span>
+            <span><span class="sw" style="background:var(--flood)"></span>{{ L.leg_new_water }}</span>
+            <span><span class="sw" style="background:var(--water)"></span>{{ L.leg_water_pre }}</span>
+            <span><span class="dot" style="background:var(--unobs)"></span>{{ L.leg_unobs }}</span>
+            <span><span class="ln" style="background:var(--cut)"></span>{{ L.leg_cut_road }}</span>
+            <span><span class="dot" style="background:var(--cut)"></span>{{ L.leg_cut_settl }}</span>
+            <span><span class="dot" style="background:var(--hosp)"></span>{{ L.leg_hosp_settl }}</span>
+          </div>
+
+          <!-- Insightful Ground Narrative -->
+          <div class="map-narrative">
+            The mapped area covers <b>{{ F.aoi_area_km2 }} km²</b> with <b>{{ F.area_debris_km2 }} km²</b> detected debris/scour footprint and <b>{{ F.area_flood_km2 }} km²</b> new water. Debris and scour are concentrated along drainage corridors with radar backscatter change.
+          </div>
+
+          {% if maps.satellite_pair %}
+          <div class="sat-pair-box">
+            <img src="data:image/png;base64,{{ maps.satellite_pair }}" alt="Satellite Pre/Post Radar">
+            <div class="sat-pair-info">
+              <b>{{ L.satellite_pair_title }}</b><br>
+              Same-track Sentinel-1 SAR pair spanning event date.
+            </div>
+          </div>
+          {% endif %}
+        </div>
+
+        <!-- 3. MAPPED AREA SUMMARY -->
+        <div class="c-card inspect-target">
+          <span class="inspect-tag">#5-HAZARD-EVIDENCE</span>
+          <div class="c-head">
+            <span>3. {{ L.p_summary }}</span>
+            <span class="c-sub">% visible to radar: <b>{{ F.area_observable_pct }}%</b></span>
+          </div>
+          <div class="matrix-4">
+            <div class="matrix-cell">
+              <div class="matrix-val">{{ F.area_debris_km2 }} km²</div>
+              <div class="matrix-lbl">{{ L.t_deb }}</div>
+            </div>
+            <div class="matrix-cell">
+              <div class="matrix-val">{{ F.area_flood_km2 }} km²</div>
+              <div class="matrix-lbl">{{ L.t_wat }}</div>
+            </div>
+            <div class="matrix-cell">
+              <div class="matrix-val">{{ F.area_permanent_water_km2 }} km²</div>
+              <div class="matrix-lbl">{{ L.t_pre }}</div>
+            </div>
+            <div class="matrix-cell">
+              <div class="matrix-val">{{ F.area_not_observable_km2 }} km²</div>
+              <div class="matrix-lbl">{{ L.t_unobs }}</div>
+            </div>
+          </div>
+          <div class="matrix-foot">
+            By confidence: High <b>{{ F.area_tier_high_km2 }} km²</b> · Moderate <b>{{ F.area_tier_moderate_km2 }} km²</b> · Low <b>{{ F.area_tier_low_km2 }} km²</b>.<br>
+            Buildings in hazard: High <b>{{ F.buildings_hit_high }}</b> · Moderate <b>{{ F.buildings_hit_moderate }}</b> · Low <b>{{ F.buildings_hit_low }}</b> · In shadow: <b>{{ F.buildings_unobserved }}</b>.
+          </div>
+        </div>
+
+        <!-- 7. ANALYSED ROAD NETWORK -->
+        <div class="c-card inspect-target">
+          <span class="inspect-tag">#7-ROAD-NETWORK</span>
+          <div class="c-head">
+            <span>7. {{ L.p_net }}</span>
+            <span class="c-sub"><b>{{ F.network_km }} km</b> network</span>
+          </div>
+          <div class="net-bullets">
+            <div>• Impassable: <b>{{ F.network_failed_km }} km</b> ({% if F.road_ways_hit %}<b>{{ F.road_ways_hit }}</b> roads & trails touched{% else %}severed{% endif %})</div>
+            <div>• Network unobserved: <b>{{ F.network_unobserved_pct }}%</b> (steep relief radar shadow)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT COLUMN -->
+      <div class="col-stack">
+        <!-- 4. SETTLEMENTS WITH NO ROAD OUT OR NO HOSPITAL ACCESS -->
+        <div class="c-card inspect-target">
+          <span class="inspect-tag">#6-ISOLATION-ACCESS</span>
+          <div class="c-head">
+            <span>4. {{ L.t_cut }}</span>
+            <span class="c-sub"><b>{{ F.settlements_cut_off }}</b> cut off <span class="sep">•</span> <b>{{ F.settlements_hospital_cut_off }}</b> hospital cut</span>
+          </div>
+          {% if T.cut_off %}
+          <table>
+            <thead>
+              <tr>
+                <th style="width:12px">#</th>
+                <th>{{ L.c_name }}</th>
+                <th>{{ L.c_status }}</th>
+                <th class="n">{{ L.c_bld }}</th>
+                <th class="n">{{ L.c_hpre }}</th>
+                <th style="width:28px"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in T.cut_off[:5] %}
+              <tr>
+                <td><b>{{ r.rank }}</b></td>
+                <td><b>{{ r.name }}</b> <span class="card-note" style="display:inline">({{ r.place }})</span></td>
+                <td><span class="tag {% if r.status == 'cut off' %}t-cut{% else %}t-hosp{% endif %}">{% if r.status == 'cut off' %}{{ L.st_cut_off }}{% else %}{{ L.st_hospital_cut_off }}{% endif %}</span></td>
+                <td class="n">{{ r.buildings }}</td>
+                <td class="n">{{ r.km_pre }} km</td>
+                <td class="pin"><a href="{{ r.gmaps_url }}">Maps<svg class="ico-ext" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 9l6-6M9 3H4.5M9 3v4.5"/></svg></a></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <div class="table-foot-note">1–{{ [5, T.cut_off|length]|min }} of {{ F.settlements_total }} settlements</div>
+          {% else %}
+          <div class="status-box-empty">No settlements cut off from all road access.</div>
+          {% endif %}
+        </div>
+
+        <!-- 5. BRIDGES LIKELY LOST OR AT RISK -->
+        <div class="c-card inspect-target">
+          <span class="inspect-tag">#7-BRIDGES</span>
+          <div class="c-head">
+            <span>5. {{ L.t_bridges }}</span>
+            <span class="c-sub"><b>{{ F.bridges_lost }}</b> lost <span class="sep">•</span> <b>{{ F.bridges_at_risk }}</b> at risk</span>
+          </div>
+          {% if T.bridges and T.bridges|length > 0 %}
+          <table>
+            <thead>
+              <tr>
+                <th>{{ L.b_name }}</th>
+                <th>{{ L.b_status }}</th>
+                <th class="n">{{ L.b_len }}</th>
+                <th class="n">{{ L.b_drop }}</th>
+                <th class="n">{{ L.b_p }}</th>
+                <th style="width:28px"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in T.bridges[:3] %}
+              <tr>
+                <td><b>{{ r.name }}</b>{% if r.osm_label %} <a class="card-note" style="display:inline" href="{{ r.osm_url }}">{{ r.osm_label }}</a>{% endif %}</td>
+                <td><span class="tag {% if r.status == 'likely lost' %}t-lost{% else %}t-risk{% endif %}">{{ r.status }}</span></td>
+                <td class="n">{{ r.length_m }} m</td>
+                <td class="n">{{ r.drop_db }} dB</td>
+                <td class="n"><b>{{ r.p_lost }}</b></td>
+                <td class="pin"><a href="{{ r.gmaps_url }}">Maps<svg class="ico-ext" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 9l6-6M9 3H4.5M9 3v4.5"/></svg></a></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <div class="status-box-empty">
+            <span class="tag t-ok">Standing</span> No bridge is likely lost or at risk. ({{ F.bridges_total }} mapped checked)
+          </div>
+          {% endif %}
+        </div>
+
+        {% if T.detours and T.detours|length > 0 %}
+        <!-- 6. LONGER ROUTES -->
+        <div class="c-card inspect-target">
+          <span class="inspect-tag">#7B-DETOURS</span>
+          <div class="c-head">
+            <span>6. {{ L.t_detour }}</span>
+            <span class="c-sub">Max: <b>{{ F.max_detour_hours }} h</b></span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width:12px">#</th>
+                <th>{{ L.c_name }}</th>
+                <th class="n">{{ L.c_bld }}</th>
+                <th class="n">{{ L.d_hpre }}</th>
+                <th class="n">{{ L.d_hpost }}</th>
+                <th class="n">{{ L.d_delay }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for d in T.detours[:2] %}
+              <tr>
+                <td><b>{{ loop.index }}</b></td>
+                <td><b>{{ d.name }}</b></td>
+                <td class="n">{{ d.buildings }}</td>
+                <td class="n">{{ d.h_pre }} h</td>
+                <td class="n">{{ d.h_post }} h</td>
+                <td class="n"><b>+{{ d.delay }} h</b></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+
+        {% if T.hospitals and (not T.bridges or T.bridges|length == 0) %}
+        <!-- 8. HOSPITALS AND CLINICS -->
+        <div class="c-card inspect-target">
+          <span class="inspect-tag">#8-HOSPITALS</span>
+          <div class="c-head">
+            <span>8. {{ L.t_hosp }}</span>
+            <span class="c-sub"><b>{{ F.hospitals_accessible }}</b> accessible</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>{{ L.h_name }}</th>
+                <th>{{ L.h_type }}</th>
+                <th>{{ L.h_access }}</th>
+                <th style="width:28px"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for h in T.hospitals[:3] %}
+              <tr>
+                <td><b>{{ h.name }}</b></td>
+                <td><span class="card-note">{{ h.amenity }}</span></td>
+                <td><span class="tag t-ok">{{ h.status }}</span></td>
+                <td class="pin"><a href="{{ h.gmaps_url }}">Maps<svg class="ico-ext" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 9l6-6M9 3H4.5M9 3v4.5"/></svg></a></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+
+        {% if T.repairs and T.repairs|length > 0 %}
+        <!-- 9. REPAIRS THAT RECONNECT THE MOST -->
+        <div class="c-card inspect-target">
+          <span class="inspect-tag">#8-PRIORITY-REPAIRS</span>
+          <div class="c-head">
+            <span>9. {{ L.top_repairs }}</span>
+            <span class="c-sub">Optimal Reconnection Ranking</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width:14px">#</th>
+                <th>{{ L.r_asset }}</th>
+                <th class="n">{{ L.r_settl }}</th>
+                <th class="n">{{ L.r_bld }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in T.repairs[:3] %}
+              <tr>
+                <td><span class="rk" style="background:var(--ok)">{{ r.rank }}</span></td>
+                <td><b>{{ r.what }}</b> <span class="card-note" style="display:inline">({{ r.highway }})</span></td>
+                <td class="n">{{ r.settlements }}</td>
+                <td class="n"><b>{{ r.buildings }}</b></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% elif flow and flow|length > 0 %}
+        <!-- 9. FLOOD PATHS TRACED IN THIS AREA -->
+        <div class="c-card inspect-target">
+          <span class="inspect-tag">#8-FLOWPATHS</span>
+          <div class="c-head">
+            <span>9. {{ L.t_flow }}</span>
+            <span class="c-sub"><b>{{ flow|length }}</b> traces</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width:12px">#</th>
+                <th>{{ L.fp_len }}</th>
+                <th class="n">{{ L.fp_drop }}</th>
+                <th class="n">{{ L.fp_settl }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in flow[:2] %}
+              <tr>
+                <td><b>{{ loop.index }}</b></td>
+                <td>{{ p.meta.length_km }} km</td>
+                <td class="n">{{ p.meta.drop_m }} m</td>
+                <td class="n"><b>{{ p.meta.settlements_hit }}</b></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 9: Comprehensive Data Provenance & Caveats Box -->
+  <div class="footer-box inspect-target">
+    <span class="inspect-tag">#9-PROVENANCE-FOOTER</span>
+    <div class="f-col f-data">
+      <div class="f-head">{{ L.t_data }}</div>
+      <div class="f-kv-list">
+        <div class="f-kv">
+          <span class="f-lbl">{{ L.ds_sar }}:</span>
+          <span class="f-val">{% for s in T.s1 %}<b>{{ F.sensor_s1 }}</b> {{ s.track }} ({{ s.pre }} → {{ s.post }}){% if not loop.last %} · {% endif %}{% endfor %}</span>
+        </div>
+        <div class="f-kv">
+          <span class="f-lbl">{{ L.ds_opt }}:</span>
+          <span class="f-val"><b>{{ F.sensor_s2 }}</b> {{ F.s2_pair }}</span>
+        </div>
+        <div class="f-kv">
+          <span class="f-lbl">{{ L.ds_dem_lbl }}:</span>
+          <span class="f-val">{{ F.dem_name }} · {{ F.resolution_m }} m</span>
+        </div>
+        <div class="f-kv">
+          <span class="f-lbl">{{ L.ds_osm_lbl }}:</span>
+          <span class="f-val">{{ F.osm_snapshot }}</span>
+        </div>
+      </div>
+    </div>
+    <div class="f-col f-limits">
+      <div class="f-head">{{ L.limits }}</div>
+      <ul class="f-bullet-list">
+        {% for lim in L.sitrep_limits %}
+        <li>{{ lim }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="f-col f-credits">
+      <div class="f-head">{{ L.credits }}</div>
+      <div class="f-credits-content">
+        <div class="f-attr">{{ F.attr_s }} · {{ F.attr_dem }} · {{ F.attr_osm }}</div>
+        <div class="f-note">{{ L.footer }}</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

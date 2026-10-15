@@ -3,7 +3,7 @@
 # high-relief "mountain" fold and Sen1Floods11 (training/eval_sen1floods11.py).
 dataset: kurosiwo            # allowed training data only (Kuro Siwo / Sen1Floods11)
 data_dir: /tmp/ks_full
-out_dir: /kaggle/working/dhara/runs
+out_dir: /tmp/runs              # not /kaggle/working: it is a loop-mounted image whose writes fill the container page cache
 run_name: unet_r34_imagenet_v2
 seed: 1337
 

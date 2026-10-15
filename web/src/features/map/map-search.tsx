@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Crosshair, HeartPulse, MapPin, Search, X } from 'lucide-react'
+import { Crosshair, HeartPulse, MapPin, Search, Waypoints, X } from 'lucide-react'
 import { useApp } from '@/context/app-state'
 import { api } from '@/lib/api'
 import { useJobData } from '@/lib/job'
-import { nameMatches } from '@/lib/translit'
+import { nameKeys, searchRank } from '@/lib/translit'
 import { Input } from '@/components/ui/input'
 import { StatusBadge } from '@/features/workspace/common'
 
@@ -29,23 +29,34 @@ export function MapSearch() {
 
   // Empty box: the settlements that most need attention (list is already ranked worst first) and
   // hospitals. Typed text: name matches from the first character, Latin spelling included.
+  // Search keys (transliterations included) are built once per analysis, not on every keystroke.
+  const index = useMemo(
+    () => ({
+      s: d.settlements.map((x) => [x, nameKeys(x.name)] as const),
+      h: d.hospitals.map((x) => [x, nameKeys(x.name)] as const),
+      b: d.bridges.filter((x) => x.name && !/^(unnamed|unclassified|path|track|footway)$/i.test(x.name)).map((x) => [x, nameKeys(x.name)] as const),
+    }),
+    [d.settlements, d.hospitals, d.bridges],
+  )
   const hits = useMemo(() => {
     if (!query)
       return {
         s: d.settlements.filter((s) => ['cut_off', 'hospital_cut_off', 'detour'].includes(s.status)).slice(0, 5),
         h: d.hospitals.slice(0, 3),
+        b: [],
       }
     return {
-      s: d.settlements.filter((s) => nameMatches(s.name, query)).slice(0, 8),
-      h: d.hospitals.filter((h) => nameMatches(h.name, query)).slice(0, 3),
+      s: searchRank(index.s, query, 8),
+      h: searchRank(index.h, query, 3),
+      b: searchRank(index.b, query, 3),
     }
-  }, [query, d.settlements, d.hospitals])
+  }, [query, index, d.settlements, d.hospitals])
 
   const close = () => {
     setOpen(false)
     setQ('')
   }
-  const any = coords || hits.s.length || hits.h.length || (places.data?.length ?? 0)
+  const any = coords || hits.s.length || hits.h.length || hits.b.length || (places.data?.length ?? 0)
 
   return (
     <div className='relative'>
@@ -59,7 +70,7 @@ export function MapSearch() {
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         onKeyDown={(e) => e.key === 'Escape' && close()}
-        placeholder={app.jobId ? 'Find a settlement, hospital or lat, lon' : 'Find a place or lat, lon'}
+        placeholder={app.jobId ? 'Find a settlement, hospital, bridge or lat, lon' : 'Find a place or lat, lon'}
         className='h-9 bg-background pr-8 pl-8 text-xs shadow-sm dark:bg-background'
       />
       {q && (
@@ -109,6 +120,18 @@ export function MapSearch() {
               }}
             >
               {h.name}
+            </Item>
+          ))}
+          {hits.b.map((b) => (
+            <Item
+              key={b.id}
+              icon={<Waypoints className='size-3.5' />}
+              onClick={() => {
+                app.select({ kind: 'bridge', props: b.raw, lngLat: b.at }, 15)
+                close()
+              }}
+            >
+              {b.name}
             </Item>
           ))}
           {(places.data ?? []).slice(0, 5).map((p) => (

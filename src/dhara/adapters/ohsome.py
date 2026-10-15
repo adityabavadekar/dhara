@@ -53,7 +53,12 @@ def _fetch_v2(flt: str, bbox: tuple[float, float, float, float], snap: datetime,
     )
     if resp.status_code != 200:
         raise OhsomeError(f"ohsome v2 request failed ({resp.status_code}): {resp.text[:300]}")
-    tbl = pq.read_table(io.BytesIO(resp.content))
+    if not resp.content or len(resp.content) < 4:
+        return _empty()
+    try:
+        tbl = pq.read_table(io.BytesIO(resp.content))
+    except Exception:
+        return _fetch_v1(flt, bbox, snap)
     if tbl.num_rows == 0:
         return _empty()
     df = tbl.to_pandas()
@@ -108,5 +113,8 @@ def fetch_layer(
     snap = datetime.combine(snapshot, time(0), tzinfo=UTC)
     key = get_settings().ohsome_api_key
     if key:
-        return _fetch_v2(LAYERS[layer], bbox, snap, key.get_secret_value())
+        try:
+            return _fetch_v2(LAYERS[layer], bbox, snap, key.get_secret_value())
+        except Exception:
+            return _fetch_v1(LAYERS[layer], bbox, snap)
     return _fetch_v1(LAYERS[layer], bbox, snap)

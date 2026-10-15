@@ -31,6 +31,7 @@ from scipy.spatial import KDTree
 from shapely import LineString, Point
 
 from dhara.adapters.cdse import Grid
+from dhara.osm_names import english_name, nepali_name
 
 HOSPITAL = {"hospital"}
 HEALTH = {"hospital", "clinic", "doctors", "health_post", "healthcare"}
@@ -261,7 +262,8 @@ def analyse(
     # --- settlements and targets ---------------------------------------------------------
     pl = places.copy()
     pl["place"] = [_tags(t).get("place", "") for t in pl["tags"]]
-    pl["name"] = [_tags(t).get("name") or _tags(t).get("name:en") or "" for t in pl["tags"]]
+    pl["name"] = [english_name(_tags(t)) for t in pl["tags"]]
+    pl["name_ne"] = [nepali_name(_tags(t)) for t in pl["tags"]]
     pl = pl[pl["place"].isin(SETTLEMENTS)].reset_index(drop=True)
     sp = _points(pl, crs)
     s_node = _snap(net, sp, snap_m)
@@ -276,10 +278,7 @@ def analyse(
         kinds.append("hospital" if "hospital" in (a, h) else "health")
         amenities.append(a or h or "medical")
         names.append(
-            tg.get("name")
-            or tg.get("name:en")
-            or tg.get("name:ne")
-            or ("Hospital" if "hospital" in (a, h) else "Health Facility")
+            english_name(tg) or ("Hospital" if "hospital" in (a, h) else "Health Facility")
         )
     ht["kind"] = kinds
     ht["name"] = names
@@ -452,6 +451,7 @@ def analyse(
         rows.append(
             {
                 "name": pl["name"].iat[i],
+                "name_ne": pl["name_ne"].iat[i],
                 "place": pl["place"].iat[i],
                 "osm_id": pl["osm_id"].iat[i],
                 "status": st,
@@ -547,7 +547,7 @@ def analyse(
             repairs.append(
                 {
                     "osm_id": str(wrow["osm_id"]),
-                    "name": t.get("name", ""),
+                    "name": english_name(t),
                     "highway": t.get("highway", ""),
                     "is_bridge": t.get("bridge") not in (None, "no"),
                     "settlements_reconnected": len(rec),

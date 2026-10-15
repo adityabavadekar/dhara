@@ -1,20 +1,19 @@
-"""Answers about one named settlement, bridge or health facility, read straight from a job's layers.
+"""Answer about a selected or explicitly named map feature using its job-layer record.
 
-The question is matched to a feature name (exact substring first, then fuzzy with difflib), and
-the answer is assembled from that feature's own attributes. Every number printed is a value from
-the job's GeoJSON or repairs.json, so the answer needs no language model and cannot invent one.
-Coordinates are EPSG:4326.
+Feature resolution uses stable OSM identifiers, selected coordinates, or exact names. Coordinates
+and exported API geometries are EPSG:4326.
 """
 
 from __future__ import annotations
 
 import contextlib
-import difflib
 import json
-import re
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from dhara.osm_names import shown_name
 
 STATUS_EN = {
     "cut_off": "cut off: no road or trail out to a town, health facility or the edge of the area",
@@ -38,6 +37,88 @@ BRIDGE_EN = {
     "likely_standing": "likely standing",
     "not_observable": "not observable by the radar",
 }
+
+
+_CONS: dict[str, str] = {
+    "क": "k",
+    "ख": "kh",
+    "ग": "g",
+    "घ": "gh",
+    "ङ": "ng",
+    "च": "ch",
+    "छ": "chh",
+    "ज": "j",
+    "झ": "jh",
+    "ञ": "ny",
+    "ट": "t",
+    "ठ": "th",
+    "ड": "d",
+    "ढ": "dh",
+    "ण": "n",
+    "त": "t",
+    "थ": "th",
+    "द": "d",
+    "ध": "dh",
+    "न": "n",
+    "प": "p",
+    "फ": "ph",
+    "ब": "b",
+    "भ": "bh",
+    "म": "m",
+    "य": "y",
+    "र": "r",
+    "ल": "l",
+    "व": "w",
+    "श": "sh",
+    "ष": "sh",
+    "स": "s",
+    "ह": "h",
+}
+_VOW: dict[str, str] = {
+    "अ": "a",
+    "आ": "a",
+    "इ": "i",
+    "ई": "i",
+    "उ": "u",
+    "ऊ": "u",
+    "ए": "e",
+    "ऐ": "ai",
+    "ओ": "o",
+    "औ": "au",
+    "ऋ": "ri",
+}
+_SIGN: dict[str, str] = {
+    "ा": "a",
+    "ि": "i",
+    "ी": "i",
+    "ु": "u",
+    "ू": "u",
+    "े": "e",
+    "ै": "ai",
+    "ो": "o",
+    "ौ": "au",
+    "ृ": "ri",
+}
+_NASAL: dict[str, str] = {"ँ": "n", "ं": "n", "ः": "h"}
+
+
+def latin(text: str) -> str:
+    """Rough Devanagari to Latin transliteration for matching."""
+    c = list(text)
+    out: list[str] = []
+    for i, ch in enumerate(c):
+        nxt = c[i + 1] if i + 1 < len(c) else ""
+        if ch in _CONS:
+            out.append(_CONS[ch] + ("a" if nxt in _CONS or nxt in _NASAL else ""))
+        elif ch in _VOW:
+            out.append(_VOW[ch])
+        elif ch in _SIGN:
+            out.append(_SIGN[ch])
+        elif ch in _NASAL:
+            out.append(_NASAL[ch])
+        elif ch != "्":
+            out.append(ch.lower())
+    return "".join(out)
 
 
 @dataclass
@@ -73,118 +154,86 @@ def _features(job_dir: Path) -> list[Feature]:
         with contextlib.suppress(Exception):
             for f in json.loads(p.read_text()).get("features", []):
                 props = f.get("properties") or {}
-                name = _s(props.get("name"))
-                if name and name.lower() not in ("hospital", "bridge"):
+                name = _s(shown_name(props.get("name")))
+                osm_id = _s(props.get("osm_id"))
+                if name.lower() in ("hospital", "bridge"):
+                    continue
+                if name or osm_id:
                     out.append(Feature(kind, name, props | {"_geometry": f.get("geometry")}))
     return out
 
 
-_CONS = {
-    "क": "k",
-    "ख": "kh",
-    "ग": "g",
-    "घ": "gh",
-    "ङ": "ng",
-    "च": "ch",
-    "छ": "chh",
-    "ज": "j",
-    "झ": "jh",
-    "ञ": "ny",
-    "ट": "t",
-    "ठ": "th",
-    "ड": "d",
-    "ढ": "dh",
-    "ण": "n",
-    "त": "t",
-    "थ": "th",
-    "द": "d",
-    "ध": "dh",
-    "न": "n",
-    "प": "p",
-    "फ": "ph",
-    "ब": "b",
-    "भ": "bh",
-    "म": "m",
-    "य": "y",
-    "र": "r",
-    "ल": "l",
-    "व": "w",
-    "श": "sh",
-    "ष": "sh",
-    "स": "s",
-    "ह": "h",
-}
-_VOW = {
-    "अ": "a",
-    "आ": "a",
-    "इ": "i",
-    "ई": "i",
-    "उ": "u",
-    "ऊ": "u",
-    "ए": "e",
-    "ऐ": "ai",
-    "ओ": "o",
-    "औ": "au",
-    "ऋ": "ri",
-}
-_SIGN = {
-    "ा": "a",
-    "ि": "i",
-    "ी": "i",
-    "ु": "u",
-    "ू": "u",
-    "े": "e",
-    "ै": "ai",
-    "ो": "o",
-    "ौ": "au",
-    "ृ": "ri",
-}
-_NASAL = {"ँ": "n", "ं": "n", "ः": "h"}
-
-
-def latin(text: str) -> str:
-    """Rough Devanagari to Latin transliteration, only for matching typed names (गोसाइँकुण्ड -> gosainkunda)."""
-    out: list[str] = []
-    chars = list(text)
-    for i, c in enumerate(chars):
-        nxt = chars[i + 1] if i + 1 < len(chars) else ""
-        if c in _CONS:
-            out.append(_CONS[c])
-            if nxt in _CONS or nxt in _NASAL:
-                out.append("a")  # inherent vowel; dropped at the end of a word, as in speech
-        elif c in _VOW:
-            out.append(_VOW[c])
-        elif c in _SIGN:
-            out.append(_SIGN[c])
-        elif c in _NASAL:
-            out.append(_NASAL[c])
-        elif c == "्":
-            continue
-        else:
-            out.append(c.lower())
-    return "".join(out)
-
-
-def match(job_dir: Path, question: str) -> Feature | None:
-    """The feature the question names, or None. Longest exact name wins; else a close fuzzy match."""
+def match(
+    job_dir: Path,
+    question: str,
+    selected_entity: dict[str, Any] | None = None,
+) -> Feature | None:
+    """Match a named feature, preferring selected OSM ID/coordinates to resolve duplicate names."""
     feats = _features(job_dir)
     q = question.lower()
+    selected = selected_entity or {}
+    selected_id = _s(selected.get("id"))
+    selected_kind = _s(selected.get("kind"))
+    kind_aliases = {"flow-settlement": "settlement"}
+    if selected_id:
+        by_id = [
+            f
+            for f in feats
+            if _s(f.props.get("osm_id")) == selected_id
+            and (not selected_kind or f.kind == kind_aliases.get(selected_kind, selected_kind))
+        ]
+        if len(by_id) == 1:
+            return by_id[0]
+    id_matches = [f for f in feats if _s(f.props.get("osm_id")).lower() in q]
+    if len(id_matches) == 1:
+        return id_matches[0]
     exact = [f for f in feats if f.name.lower() in q]
+    exact = [f for f in exact if f.name]
     if exact:
-        return max(exact, key=lambda f: len(f.name))
-    words = re.findall(r"[\wऀ-ॿ'-]+", q)
-    grams = {" ".join(words[i : i + n]) for n in (1, 2, 3) for i in range(len(words) - n + 1)}
-    best, score = None, 0.0
-    for f in feats:
-        names = {f.name.lower(), latin(f.name)}
-        for n in names:
-            if len(n) < 4:
-                continue
-            for g in grams:
-                r = difflib.SequenceMatcher(None, n, g).ratio()
-                if r > score:
-                    best, score = f, r
-    return best if score >= 0.8 else None
+        longest = max(len(f.name) for f in exact)
+        exact = [f for f in exact if len(f.name) == longest]
+        if len(exact) == 1:
+            return exact[0]
+        if selected_id:
+            by_id = [f for f in exact if _s(f.props.get("osm_id")) == selected_id]
+            if len(by_id) == 1:
+                return by_id[0]
+        coordinates = selected.get("coordinates")
+        if isinstance(coordinates, (list, tuple)) and len(coordinates) == 2:
+            try:
+                lon, lat = float(coordinates[0]), float(coordinates[1])
+
+                # GeoJSON feature coordinates are EPSG:4326. Scale longitude by latitude so
+                # nearest-feature selection behaves sensibly away from the equator.
+                def distance(feature: Feature) -> float:
+                    geometry = feature.props.get("_geometry") or {}
+                    coords = geometry.get("coordinates") or []
+                    if geometry.get("type") == "Point" and len(coords) >= 2:
+                        lon_scale = max(0.01, abs(math.cos(math.radians(lat))))
+                        return ((float(coords[0]) - lon) * lon_scale) ** 2 + (
+                            float(coords[1]) - lat
+                        ) ** 2
+                    return float("inf")
+
+                nearest = sorted(exact, key=distance)
+                if len(nearest) == 1 or distance(nearest[0]) < distance(nearest[1]):
+                    return nearest[0]
+            except (TypeError, ValueError):
+                pass
+        # Never resolve same-name features by arbitrary file order.
+        return None
+    return None
+
+
+def ambiguous_exact_matches(job_dir: Path, question: str) -> list[Feature]:
+    """Return same-name exact matches when the question cannot identify one uniquely."""
+    q = question.lower()
+    exact = [f for f in _features(job_dir) if f.name and f.name.lower() in q]
+    if not exact:
+        return []
+    longest = max(len(f.name) for f in exact)
+    exact = [f for f in exact if len(f.name) == longest]
+    return exact if len(exact) > 1 else []
 
 
 def _repairs(job_dir: Path) -> list[dict]:
@@ -197,72 +246,79 @@ def _repairs(job_dir: Path) -> list[dict]:
 def _settlement(f: Feature, repairs: list[dict], ne: bool) -> str:
     p = f.props
     st = _s(p.get("status")) or "not_on_network"
-    lines = [f"### {f.name}", ""]
+    place = _s(p.get("place"))
+    label = f"mapped {place}" if place else "mapped settlement"
+    label = f"unnamed {label}" if not f.name else f"{label} **{f.name}**"
+    osm_id = _s(p.get("osm_id"))
+    identity = f"यो नक्सामा देखाइएको {label} हो।" if ne else f"This is the {label}."
+    if osm_id:
+        identity += f" (OSM {osm_id})"
+    heading = f.name or ("नाम नभएको बस्ती" if ne else "Unnamed settlement")
+    lines = [f"### {heading}", "", identity, ""]  # same layout as bridge and hospital answers
     lines.append(
-        f"**{'अवस्था' if ne else 'Status'}:** {(STATUS_NE if ne else STATUS_EN).get(st, st)}."
+        f"- **{'पहुँच' if ne else 'Road access'}:** {(STATUS_NE if ne else STATUS_EN).get(st, st)}."
     )
     b = _s(p.get("buildings_500m"))
     if b:
-        lines.append(f"- {'५०० मिटरभित्र भवन' if ne else 'Buildings within 500 m'}: {b}")
-    hosp = _s(p.get("hospital_name"))
+        lines.append(f"- {'५০০ मिटरभित्रका भवन' if ne else 'Buildings within 500 m'}: {b}")
+    hosp = _s(shown_name(p.get("hospital_name")))
     kb, ka = _s(p.get("km_to_hospital_pre")), _s(p.get("km_to_hospital_post"))
     hb, ha = _s(p.get("hours_to_hospital_pre")), _s(p.get("hours_to_hospital_post"))
     if hosp and kb:
-        lines.append(
-            f"- {'घटनाअघि' if ne else 'Before the event'}: {kb} km ({_dur(hb)}) {'सम्म' if ne else 'to'} {hosp}"
-        )
         if st in ("cut_off", "hospital_cut_off"):
             lines.append(
-                f"- {'घटनापछि' if ne else 'After the event'}: {'सडक मार्ग छैन' if ne else 'no road route'}"
+                f"- {'अस्पतालसम्मको सडक मार्ग' if ne else 'Hospital road route'}: "
+                f"{kb} km before; {'घटनापछि मार्ग छैन' if ne else 'no mapped route after the event'}."
             )
         elif ka:
-            lines.append(f"- {'घटनापछि' if ne else 'After the event'}: {ka} km ({_dur(ha)})")
-    delay = _s(p.get("delay_hours_target"))
-    if delay and delay not in ("0", "0.0"):
-        lines.append(f"- {'थप यात्रा समय' if ne else 'Extra travel time'}: {_dur(delay)}")
+            if kb == ka and hb == ha:
+                route = f"{kb} km ({_dur(hb)}) before and after"
+            else:
+                route = f"{kb} km ({_dur(hb)}) before; {ka} km ({_dur(ha)}) after"
+            lines.append(f"- {'अस्पतालसम्मको सडक मार्ग' if ne else 'Hospital road route'}: {route}.")
     pc = _s(p.get("p_cut_off"))
     if pc:
         with contextlib.suppress(ValueError):
-            lines.append(
-                f"- {'पूर्ण सम्पर्कविहीन हुने सम्भावना' if ne else 'Chance of losing all road access'}: "
-                f"{round(float(pc) * 100)}%"
-            )
+            if float(pc) > 0:
+                lines.append(
+                    f"- {'सिमुलेसनमा कट-अफ भएको' if ne else 'Cut off in network simulations'}: "
+                    f"{round(float(pc) * 100)}%"
+                )
     fixes = [r for r in repairs if f.name in (r.get("settlement_names") or [])]
-    lines.append("")
     if st in ("connected", "detour", "no_baseline_route", "not_on_network"):
         if st == "connected":
             lines.append(
-                "कुनै मर्मत आवश्यक छैन।"
+                "हाल नक्सामा मार्ग जोडिएको छ; पुनःजोड्ने मर्मत पहिचान भएको छैन।"
                 if ne
-                else "Nothing needs reconnecting: the road route still works."
+                else "No reconnection repair is identified because the mapped route remains connected."
             )
         elif st == "detour":
             lines.append(
-                "मुख्य मार्गका क्षतिग्रस्त खण्ड मर्मत गर्दा छोटो बाटो फर्किन्छ।"
+                "क्षतिग्रस्त मुख्य मार्ग मर्मत गर्दा छोटो बाटो फर्किन सक्छ।"
                 if ne
-                else "Repairing the broken links on its usual route would restore the shorter trip."
+                else "Repairing the disrupted usual route could restore the shorter trip."
             )
         else:
             lines.append(
-                "पहुँच परीक्षण गर्न नक्सामा सडक चाहिन्छ।"
+                "नक्सामा सडक नभएकाले पहुँच परीक्षण गर्न सकिँदैन।"
                 if ne
-                else "Access cannot be tested without a mapped road."
+                else "Road access cannot be assessed because no mapped road route is available."
             )
     elif fixes:
         head = "यसलाई जोड्ने मर्मत:" if ne else "Repairs that would reconnect it:"
         lines.append(head)
         for r in fixes[:3]:
             kind = "Bridge" if r.get("is_bridge") else "Road"
-            nm = r.get("name") or r.get("highway") or r.get("osm_id")
+            nm = shown_name(r.get("name")) or r.get("highway") or r.get("osm_id")
             lines.append(
                 f"- {kind} {nm}: reconnects {r.get('settlements_reconnected')} settlement(s), "
                 f"{r.get('buildings_reconnected')} buildings"
             )
     else:
         lines.append(
-            "कुनै एउटा मर्मतले मात्र यसलाई जोड्दैन; धेरै खण्ड मर्मत गर्नुपर्छ।"
+            "यसलाई जोड्न धेरै क्षतिग्रस्त खण्ड मर्मत गर्नुपर्ने देखिन्छ।"
             if ne
-            else "No single road or bridge repair reconnects it; several breaks must be fixed together."
+            else "Reconnecting it appears to require repairs to multiple damaged links."
         )
     return "\n".join(lines)
 
@@ -274,9 +330,9 @@ def _bridge(f: Feature, repairs: list[dict], ne: bool) -> str:
     pl, ph, dd = _s(p.get("p_lost")), _s(p.get("p_hazard")), _s(p.get("bright_drop_db"))
     with contextlib.suppress(ValueError):
         if pl:
-            lines.append(f"- Chance lost: {round(float(pl) * 100)}%")
+            lines.append(f"- Heuristic loss score (not a calibrated probability): {float(pl):.2f}")
         if ph:
-            lines.append(f"- Flood or debris at both ends: {round(float(ph) * 100)}%")
+            lines.append(f"- Heuristic flood or debris score at both ends: {float(ph):.2f}")
         if dd:
             v = float(dd)
             lines.append(
@@ -302,9 +358,9 @@ def _hospital(f: Feature, job_dir: Path, ne: bool) -> str:
         for s in gj.get("features", []):
             p = s.get("properties") or {}
             if _s(p.get("hospital_name")) == f.name:
-                served.append(_s(p.get("name")) or "unnamed")
+                served.append(_s(shown_name(p.get("name"))) or "unnamed")
                 if _s(p.get("status")) in ("cut_off", "hospital_cut_off"):
-                    lost.append(_s(p.get("name")) or "unnamed")
+                    lost.append(_s(shown_name(p.get("name"))) or "unnamed")
     lines = [f"### {f.name}", ""]
     lines.append(f"- Nearest hospital for {len(served)} mapped settlements")
     lines.append(f"- Of those, {len(lost)} lost road access to it")

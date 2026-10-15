@@ -47,6 +47,7 @@ export type Settlement = {
 export type Bridge = {
   id: string
   name: string
+  ref?: string
   highway: string
   status: 'likely_lost' | 'at_risk' | 'likely_standing' | 'not_observable' | string
   confidence: string
@@ -162,11 +163,36 @@ export function parseSettlement(p: Raw, at: LngLat): Settlement {
   }
 }
 
+function extractTag(p: Raw, key: string): string | undefined {
+  if (p[key]) return str(p[key])
+  if (typeof p.tags === 'string') {
+    try {
+      const parsed = JSON.parse(p.tags)
+      if (parsed[key]) return String(parsed[key])
+    } catch {
+      // ignore
+    }
+  } else if (p.tags && typeof p.tags === 'object') {
+    const v = (p.tags as Record<string, unknown>)[key]
+    if (v) return String(v)
+  }
+  return undefined
+}
+
 export function parseBridge(p: Raw, at: LngLat): Bridge {
+  const ref = extractTag(p, 'ref')
+  const bridgeName =
+    str(p.name) ||
+    extractTag(p, 'bridge:name') ||
+    extractTag(p, 'name') ||
+    extractTag(p, 'name:en') ||
+    extractTag(p, 'name:ne') ||
+    (ref ? `${ref} Bridge` : '')
   return {
     id: str(p.osm_id),
-    name: str(p.name),
-    highway: str(p.highway),
+    name: bridgeName,
+    ref,
+    highway: str(p.highway) || extractTag(p, 'highway') || '',
     status: str(p.status),
     confidence: str(p.confidence),
     pLost: num(p.p_lost),
@@ -202,6 +228,21 @@ export function useJob(id: string | null) {
   })
 }
 
+/** Props of a selected settlement with its hospital route merged in. The settlements layer is
+ *  loaded without routes, so the route is fetched once per selected settlement. */
+export function useSettlementRoute(jobId: string | null, sel: { kind: string; props: Raw; lngLat: LngLat } | null): Raw | null {
+  const p = sel?.props ?? null
+  const needs = !!jobId && sel?.kind === 'settlement' && !!p && !('hospital_path_pre' in p)
+  const q = useQuery({
+    queryKey: ['route', jobId, str(p?.osm_id) || sel?.lngLat.join(',')],
+    queryFn: () => api.settlementRoute(jobId!, str(p?.osm_id), sel!.lngLat as [number, number]),
+    enabled: needs,
+    staleTime: Infinity,
+    retry: false,
+  })
+  return useMemo(() => (p && q.data ? { ...p, ...q.data } : p), [p, q.data])
+}
+
 /** Facts ledger as a lookup. `t(key)` returns the formatted text, or null when the fact is missing. */
 export function useFacts(id: string | null, enabled: boolean) {
   const q = useQuery({ queryKey: ['facts', id], queryFn: () => api.facts(id!), enabled: !!id && enabled })
@@ -213,11 +254,11 @@ export function useFacts(id: string | null, enabled: boolean) {
   }, [q.data, q.isSuccess])
 }
 
-function useGeo(id: string | null, done: boolean, name: string) {
+function useGeo(id: string | null, done: boolean, name: string, path: string | undefined) {
   return useQuery({
     queryKey: ['gj', id, name],
-    queryFn: () => api.geojson(id!, `web/${name}.geojson`),
-    enabled: !!id && done,
+    queryFn: () => api.geojson(id!, path!),
+    enabled: !!id && done && !!path,
     staleTime: Infinity,
   })
 }
@@ -226,12 +267,20 @@ function useGeo(id: string | null, done: boolean, name: string) {
 export function useJobData(id: string | null) {
   const job = useJob(id)
   const done = job.data?.status === 'done'
+  const manifest = useQuery({
+    queryKey: ['manifest', id],
+    queryFn: () => api.manifest(id!),
+    enabled: !!id && !!done,
+    staleTime: Infinity,
+  })
   const facts = useFacts(id, done)
-  const s = useGeo(id, done, 'settlements')
-  const b = useGeo(id, done, 'bridges')
-  const h = useGeo(id, done, 'hospitals')
-  const bl = useGeo(id, done, 'buildings')
-  const lz = useGeo(id, done, 'hlz')
+  const vectors = manifest.data?.vectors ?? {}
+  const s = useGeo(id, done, 'settlements', vectors.settlements?.url ? `${vectors.settlements.url}?slim=1` : undefined)
+  const b = useGeo(id, done, 'bridges', vectors.bridges?.url)
+  const roads = useGeo(id, done, 'roads', vectors.roads?.url)
+  const h = useGeo(id, done, 'hospitals', vectors.hospitals?.url)
+  const bl = useGeo(id, done, 'buildings', vectors.buildings?.url)
+  const lz = useGeo(id, done, 'hlz', vectors.hlz?.url)
   const repairs = useQuery({
     queryKey: ['repairs', id],
     queryFn: () => fetch(fileUrl(id!, 'repairs.json')).then((r) => (r.ok ? (r.json() as Promise<Raw[]>) : [])),
@@ -314,18 +363,24 @@ export function useJobData(id: string | null) {
       ),
     [repairs.data]
   )
+  const roadFeatures = useMemo(
+    () => features(roads.data).map((f) => ({ raw: f.properties as Raw, at: first(f.geometry) })),
+    [roads.data]
+  )
 
   return {
     job,
     done,
     facts,
+    change: manifest.data?.change,
     settlements,
     bridges,
+    roadFeatures,
     hospitals,
     facilities,
     landingZones,
     repairs: repairList,
-    loading: done && (s.isLoading || b.isLoading || h.isLoading),
+    loading: done && (manifest.isLoading || s.isLoading || b.isLoading || h.isLoading || roads.isLoading),
   }
 }
 
@@ -366,6 +421,7 @@ export const fmtHours = (v: number | null) => {
   return `${v.toFixed(1)} h`
 }
 export const pct = (v: number | null) => (v == null ? '—' : `${Math.round(v * 100)}%`)
+export const score = (v: number | null) => (v == null ? '—' : v.toFixed(2))
 
 /** Great-circle distance in km between two EPSG:4326 points. */
 export function distanceKm(a: LngLat, b: LngLat): number {

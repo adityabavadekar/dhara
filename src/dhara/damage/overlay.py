@@ -12,6 +12,7 @@ from rasterio.features import geometry_mask
 from rasterio.transform import Affine, rowcol
 
 from dhara.adapters.cdse import Grid
+from dhara.osm_names import english_name
 
 HIT_P = 0.5
 TIER_NAMES = {0: "none", 1: "low", 2: "moderate", 3: "high"}
@@ -153,7 +154,10 @@ def sample_features(
             amenity = tag(str(t_val), "amenity")
             healthcare = tag(str(t_val), "healthcare")
             bldg = tag(str(t_val), "building")
-            nm = tag(str(t_val), "name") or tag(str(t_val), "name:en")
+            try:
+                nm = english_name(json.loads(str(t_val))) or None
+            except (TypeError, ValueError):
+                nm = None
             if amenity in ("school", "kindergarten", "college", "university"):
                 ft = "school"
             elif amenity in ("hospital", "clinic", "doctors", "pharmacy") or healthcare is not None:

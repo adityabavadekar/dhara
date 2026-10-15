@@ -5,7 +5,6 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 data/
-project-clones/
 node_modules/
 dist/
 *.egg-info/
@@ -19,3 +18,18 @@ dist/
 *.pth
 *.bin
 *.weights
+reports/
+# docs/ holds only the architecture notes; media stays local
+docs/*
+!docs/architecture.md
+
+# Internal notes and hackathon material (kept locally, not published)
+PLAN.md
+TODOs.md
+DELIVERABLES.md
+AGENTS.md
+about/
+
+# Old training runs; validated scores and charts are in validation/
+experiments/
+models/archive/

@@ -13,6 +13,9 @@ from skimage.filters import threshold_otsu
 # Fallbacks if no bimodal tiles are found; recorded in `meta` whenever they are used.
 FALLBACK_DECREASE_DB = -3.0
 FALLBACK_WATER_VV_DB = -18.0
+# Valley-floor threshold fitting: smaller tiles (narrow valleys) and a minimum pixel count.
+FIT_TILE = 32
+MIN_FIT_PX = 20_000
 
 
 @dataclass
@@ -97,6 +100,33 @@ def _sigmoid(x: np.ndarray) -> np.ndarray:
     return (1.0 / (1.0 + np.exp(-x))).astype(np.float32)
 
 
+def fit_threshold(
+    values: np.ndarray, valid: np.ndarray, fit_mask: np.ndarray | None, *, tile: int, side: str
+) -> tuple[float | None, dict]:
+    """Split-based threshold, fitted on `fit_mask` (e.g. the valley floor) when given and large
+    enough, else on the whole scene. On a large area the whole-scene fit is set by hillsides,
+    not by the valley floor where floods and debris occur."""
+    attempt: dict | None = None
+    if fit_mask is not None:
+        n = int((valid & fit_mask).sum())
+        attempt = {"valley_px": n}
+        if n >= MIN_FIT_PX:
+            t, diag = split_based_threshold(
+                values, valid & fit_mask, tile=FIT_TILE, side=side, min_valid=0.5
+            )
+            diag["fitted_on"] = "valley floor"
+            if t is not None:
+                return t, diag
+            attempt |= diag
+        else:
+            attempt["reason"] = "valley floor too small"
+    t, d2 = split_based_threshold(values, valid, tile=tile, side=side)
+    d2["fitted_on"] = "whole scene"
+    if attempt is not None:
+        d2["valley_attempt"] = attempt
+    return t, d2
+
+
 def run(
     pre: np.ndarray,
     post: np.ndarray,
@@ -104,6 +134,7 @@ def run(
     *,
     tile: int | None = None,
     scale_db: float = 1.0,
+    fit_mask: np.ndarray | None = None,
 ) -> ClassicalResult:
     """pre/post: (2, H, W) linear γ⁰ [VV, VH]. observable: (H, W) bool (False = layover/shadow/no data).
 
@@ -118,7 +149,7 @@ def run(
     tile = tile or adaptive_tile(lr.shape)
     meta: dict = {"tile_px": tile}
 
-    t_dec, d1 = split_based_threshold(np.nan_to_num(lr), valid, tile=tile, side="low")
+    t_dec, d1 = fit_threshold(np.nan_to_num(lr), valid, fit_mask, tile=tile, side="low")
     meta["decrease_threshold"] = d1
     if t_dec is None or t_dec > -1.0:
         meta["decrease_threshold"]["fallback_db"] = FALLBACK_DECREASE_DB
@@ -126,7 +157,7 @@ def run(
     meta["decrease_threshold_db"] = round(t_dec, 3)
 
     vv_post = post_db[0]
-    t_w, d2 = split_based_threshold(np.nan_to_num(vv_post), valid, tile=tile, side="low")
+    t_w, d2 = fit_threshold(np.nan_to_num(vv_post), valid, fit_mask, tile=tile, side="low")
     meta["water_threshold"] = d2
     if t_w is None or t_w > -12.0:
         meta["water_threshold"]["fallback_db"] = FALLBACK_WATER_VV_DB

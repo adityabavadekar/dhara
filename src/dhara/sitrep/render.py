@@ -29,6 +29,17 @@ LABELS = {
     "en": {
         "brand": "Dhara situation report",
         "title": "Flood and debris situation report",
+        "t_kpis": "Key findings",
+        "p_extent": "Flood and debris extent",
+        "p_summary": "Mapped area summary",
+        "p_net": "Analysed road network",
+        "bld_zone": "Buildings in hazard zone",
+        "longer_route": "Longer route only",
+        "iso_comm": "Isolated communities",
+        "no_hosp_acc": "No hospital road access",
+        "target": "Target area",
+        "impact_severity": "Impact Severity",
+        "satellite_pair_title": "Satellite Observation (Pre vs. Post)",
         "event": "Event",
         "area": "Area",
         "generated": "Generated",
@@ -188,6 +199,10 @@ LABELS = {
         "fp_arr": "Reached in, min (rough)",
         "p5_title": "Data, method and limitations",
         "t_data": "Data used",
+        "ds_sar": "Radar (SAR)",
+        "ds_opt": "Optical (MSI)",
+        "ds_dem_lbl": "Elevation (DEM)",
+        "ds_osm_lbl": "Baseline (OSM)",
         "ds_s1": "radar pairs (same track)",
         "ds_s2": "optical pair",
         "ds_dem": "Copernicus DEM GLO-30",
@@ -195,7 +210,7 @@ LABELS = {
         "ds_grid": "Analysis grid",
         "ds_members": "Evidence methods",
         "method": "Method",
-        "method_text": "Radar change detection maps new water and, separately, debris and scour; a segmentation model trained on Kuro Siwo adds a third opinion. Terrain from the Copernicus DEM rules out water on steep slopes and high ground. The results are pooled into probabilities and a confidence tier. Pre-event OpenStreetMap buildings, roads and bridges are overlaid; bridges are also tested for loss of their strong radar return. The road network is cut where flood or debris crosses it, and each settlement is tested for a route out, before and after.",
+        "method_text": "Radar change detection maps new water and, separately, debris and scour; a segmentation model trained on Kuro Siwo adds another evidence source. Terrain from the Copernicus DEM helps screen implausible water detections. The combined model scores and confidence tiers are heuristic, not calibrated probabilities. Pre-event OpenStreetMap buildings, roads and bridges are overlaid; bridges are also tested for loss of their strong radar return. The road network is cut where mapped flood or debris crosses it, and settlement road access is compared before and after.",
         "limits": "Limitations",
         "limits_list": [
             "Sentinel satellites revisit a track only every few days, so this is a snapshot after the event, not a warning.",
@@ -205,6 +220,11 @@ LABELS = {
             "Roads, trails and bridges missing from the pre-event map cannot be tested.",
             "Population is not an allowed input, so impact is counted in buildings.",
             "The Nepali text is a first draft and needs review by a native speaker.",
+        ],
+        "sitrep_limits": [
+            "Radar shadow in steep relief is unobserved, not safe.",
+            "Missing pre-event trails or bridges cannot be tested.",
+            "Impact measured in buildings; no population model used.",
         ],
         "links": "Links",
         "l_prov": "Provenance: scenes, parameters, timings",
@@ -216,6 +236,17 @@ LABELS = {
     "ne": {
         "brand": "Dhara स्थिति प्रतिवेदन",
         "title": "बाढी तथा लेदो स्थिति प्रतिवेदन",
+        "t_kpis": "प्रमुख नतिजाहरू",
+        "p_extent": "बाढी तथा लेदो क्षेत्र",
+        "p_summary": "नक्साङ्कन गरिएको क्षेत्रको सारांश",
+        "p_net": "विश्लेषण गरिएको सडक सञ्जाल",
+        "bld_zone": "जोखिम क्षेत्रका भवनहरू",
+        "longer_route": "लामो बाटो मात्र",
+        "iso_comm": "सम्पर्कविहीन बस्तीहरू",
+        "no_hosp_acc": "अस्पताल पुग्ने बाटो बन्द",
+        "target": "लक्षित क्षेत्र",
+        "impact_severity": "प्रकोप स्तर",
+        "satellite_pair_title": "उपग्रह अवलोकन (घटनाअघि र पछि)",
         "event": "घटना",
         "area": "क्षेत्र",
         "generated": "तयार",
@@ -375,6 +406,10 @@ LABELS = {
         "fp_arr": "पुग्ने समय, मिनेट (अनुमानित)",
         "p5_title": "तथ्यांक, विधि र सीमाहरू",
         "t_data": "प्रयोग गरिएको तथ्यांक",
+        "ds_sar": "राडार (SAR)",
+        "ds_opt": "अप्टिकल (MSI)",
+        "ds_dem_lbl": "उचाइ (DEM)",
+        "ds_osm_lbl": "सडक र भवन (OSM)",
         "ds_s1": "राडार जोडी (एउटै ट्र्याक)",
         "ds_s2": "अप्टिकल जोडी",
         "ds_dem": "Copernicus DEM GLO-30",
@@ -382,7 +417,7 @@ LABELS = {
         "ds_grid": "विश्लेषण ग्रिड",
         "ds_members": "प्रमाण विधि",
         "method": "विधि",
-        "method_text": "राडार परिवर्तन पहिचानले नयाँ पानी र लेदो छुट्टाछुट्टै नक्सामा देखाउँछ; Kuro Siwo मा तालिम दिइएको मोडेलले थप राय दिन्छ। Copernicus DEM ले भिरालो र अग्लो ठाउँमा पानी हुन नसक्ने कुरा जाँच्छ। घटनाअघिका भवन, सडक र पुल खप्टाइन्छन्, र हरेक बस्तीको बाहिर जाने बाटो घटनाअघि र पछि जाँचिन्छ।",
+        "method_text": "राडार परिवर्तन पहिचानले नयाँ पानी र लेदो छुट्टाछुट्टै नक्सामा देखाउँछ; Kuro Siwo मा तालिम दिइएको मोडेलले थप प्रमाण दिन्छ। Copernicus DEM ले पानीका सम्भावित गलत पहिचान जाँच्छ। मोडेल स्कोर र विश्वास तह अनुमानमा आधारित हुन्, क्यालिब्रेट गरिएका सम्भाव्यता होइनन्। घटनाअघिका भवन, सडक र पुल खप्टाइन्छन्, र हरेक बस्तीको सडक पहुँच घटनाअघि र पछि जाँचिन्छ।",
         "limits": "सीमाहरू",
         "limits_list": [
             "Sentinel उपग्रह हरेक ट्र्याकमा केही दिनमा मात्र फर्कन्छ, त्यसैले यो चेतावनी होइन।",
@@ -391,6 +426,11 @@ LABELS = {
             "नक्सामा नभएका सडक, पैदल मार्ग र पुल जाँच्न सकिँदैन।",
             "जनसंख्या प्रयोग गर्न नपाइने भएकाले असर भवनमा गनिएको छ।",
             "नेपाली पाठ मातृभाषीबाट जाँच आवश्यक छ।",
+        ],
+        "sitrep_limits": [
+            "साँघुरा खोंचमा राडार छायाँ हुन्छ: नदेखिएको भूभाग अज्ञात हो।",
+            "नक्सामा नभएका सडक तथा पुल जाँच्न सकिँदैन।",
+            "जनसंख्या प्रयोग नभएकाले असर भवनमा गनिएको छ।",
         ],
         "links": "लिङ्कहरू",
         "l_prov": "स्रोत विवरण: दृश्य, प्यारामिटर, समय",
@@ -423,7 +463,7 @@ def _maps(job_dir: Path, f: Facts) -> dict[str, str | list[str] | None]:
         return out
     cut, rep, br = f.ids.get("cut_off", []), f.ids.get("repairs", []), f.ids.get("bridges", [])
     with contextlib.suppress(Exception):
-        out["overview"] = maps.overview(L, cut[:10])
+        out["overview"] = maps.overview(L, cut[:5])  # numbered like the report table's top 5
     with contextlib.suppress(Exception):
         w = maps.hazard_window(L)
         if w is not None:
@@ -432,6 +472,8 @@ def _maps(job_dir: Path, f: Facts) -> dict[str, str | list[str] | None]:
         out["access"] = maps.access(L, cut, rep)
     with contextlib.suppress(Exception):
         out["change"] = maps.change_pair(job_dir)
+    with contextlib.suppress(Exception):
+        out["satellite_pair"] = maps.satellite_pair(job_dir)
     flows: list[str] = []
     for name in f.ids.get("flowpaths", []):
         try:

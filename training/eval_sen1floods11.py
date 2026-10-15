@@ -83,14 +83,19 @@ class Counts:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="models/flood_unet")
+    ap.add_argument(
+        "--model", action="append", help="model dir (repeat to score the mean of several models)"
+    )
     ap.add_argument("--cache", default="/tmp/sen1floods11")
+    ap.add_argument("--tta", action="store_true", help="average predictions over image flips")
     ap.add_argument("--out", default=None, help="default: <model>/metrics_sen1floods11.json")
     args = ap.parse_args()
-    model = ml_seg.load_model(Path(args.model))
-    if model is None:
-        raise SystemExit(f"no model at {args.model}")
-    report: dict = {"model": model.card.get("run_name"), "mode": "post only", "splits": {}}
+    dirs = args.model or ["models/flood_unet"]
+    models = [ml_seg.load_model(Path(d)) for d in dirs]
+    if any(m is None for m in models):
+        raise SystemExit(f"no model in one of {dirs}")
+    names = [m.card.get("run_name") for m in models if m is not None]
+    report: dict = {"model": " + ".join(names), "mode": "post only", "tta": args.tta, "splits": {}}
     for split in SPLITS:
         ours, otsu = Counts(), Counts()
         for s1, lab in chips(split, Path(args.cache)):
@@ -99,15 +104,20 @@ def main() -> None:
             with rasterio.open(lab) as d:
                 y = d.read(1).astype(np.int16)
             lin = np.where(np.isfinite(db), 10 ** (db / 10), np.nan).astype(np.float32)
-            r = ml_seg.predict(model, lin, lin, lin)
-            water = np.nan_to_num(r.p_flood) + np.nan_to_num(r.p_perm_water) >= 0.5
+            pw = [
+                np.nan_to_num(r.p_flood) + np.nan_to_num(r.p_perm_water)
+                for r in (
+                    ml_seg.predict(m, lin, lin, lin, tta=args.tta) for m in models if m is not None
+                )
+            ]
+            water = np.mean(pw, axis=0) >= 0.5
             ours.add(water, y)
             vv = db[0][np.isfinite(db[0])]
             t = threshold_otsu(vv) if vv.size > 100 else -15.0
             otsu.add(np.nan_to_num(db[0], nan=0.0) < t, y)
         report["splits"][split] = {"model": ours.scores(), "otsu_vv_baseline": otsu.scores()}
         print(split, json.dumps(report["splits"][split]), flush=True)
-    out = Path(args.out) if args.out else Path(args.model) / "metrics_sen1floods11.json"
+    out = Path(args.out) if args.out else Path(dirs[0]) / "metrics_sen1floods11.json"
     out.write_text(json.dumps(report, indent=1))
     print("wrote", out)
 

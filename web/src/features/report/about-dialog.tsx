@@ -40,14 +40,14 @@ function ModelTable({ runs, deployed }: { runs: ModelRun[]; deployed: string | n
       <TableHeader>
         <TableRow>
           <TableHead>Variant</TableHead>
-          <TableHead className='text-right'>F1 validation</TableHead>
-          <TableHead className='text-right'>IoU validation</TableHead>
+          <TableHead className='text-right'>F1 test events</TableHead>
           <TableHead className='text-right'>F1 mountain</TableHead>
           <TableHead className='text-right'>IoU mountain</TableHead>
+          <TableHead className='text-right'>Sen1Floods11 IoU (test / Bolivia)</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {runs.map((r) => (
+        {[...runs].sort((a, b) => Number(b.mountain_held_out) - Number(a.mountain_held_out)).map((r) => (
           <TableRow key={r.run_name} className={r.run_name === deployed ? 'bg-emerald-600/5 font-medium shadow-[inset_3px_0_0_var(--color-emerald-600)]' : ''}>
             <TableCell>
               {r.run_name}
@@ -57,13 +57,18 @@ function ModelTable({ runs, deployed }: { runs: ModelRun[]; deployed: string | n
                 </span>
               )}
             </TableCell>
-            <TableCell className='text-right tabular-nums'>{f(r.test.f1_flood)}</TableCell>
-            <TableCell className='text-right tabular-nums'>{f(r.test.iou_flood)}</TableCell>
+            <TableCell className={cn('text-right tabular-nums', !r.mountain_held_out && 'text-muted-foreground')}>
+              {f(r.test.f1_flood)}
+              {!r.mountain_held_out && <span className='ml-1 text-[0.625rem]'>not held out</span>}
+            </TableCell>
             <TableCell className={cn('text-right tabular-nums', !r.mountain_held_out && 'text-muted-foreground')}>
               {f(r.mountain.f1_flood)}
               {!r.mountain_held_out && <span className='ml-1 text-[0.625rem]'>not held out</span>}
             </TableCell>
             <TableCell className={cn('text-right tabular-nums', !r.mountain_held_out && 'text-muted-foreground')}>{f(r.mountain.iou_flood)}</TableCell>
+            <TableCell className='text-right tabular-nums'>
+              {r.sen1floods11 ? `${f(r.sen1floods11.test)} / ${f(r.sen1floods11.bolivia)}` : '—'}
+            </TableCell>
           </TableRow>
         ))}
       </TableBody>
@@ -129,14 +134,15 @@ export function AboutDialog() {
                     </p>
                     <p>
                       "Mountain" is {dep.splits.mountain_events?.length ?? '—'} high-relief Kuro Siwo events ({dep.splits.counts?.mountain ?? '—'}{' '}
-                      tiles), meant as the stand-in for unseen Himalayan scenes. "Validation" tiles were used to pick the checkpoint, so
-                      they flatter the model. Scores are for the flood class.
+                      tiles), never used in training, as the stand-in for unseen Himalayan scenes. "Test events" are Kuro Siwo's
+                      official test floods. Kuro Siwo scores are for the flood class; Sen1Floods11 scores are for water (it has no
+                      before-images and no flood/permanent split), where Bolivia is a flood the model never saw.
                     </p>
                     {model.data && model.data.runs.some((r) => !r.mountain_held_out) && (
                       <p className='rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-2 text-amber-900 dark:text-amber-200'>
-                        Runs marked "not held out" were trained with a split that let mountain tiles into training, so their mountain
-                        scores overstate performance on unseen terrain. The split is fixed; these runs need retraining before their
-                        mountain scores can be quoted.
+                        Runs marked "not held out" are earlier runs whose split let test and mountain tiles into training, so their
+                        scores overstate performance on unseen floods. They are kept for the record; only the other rows are
+                        comparable.
                       </p>
                     )}
                   </div>
