@@ -22,6 +22,9 @@ reports/
 # docs/ holds only the architecture notes; media stays local
 docs/*
 !docs/architecture.md
+!docs/dashboard.jpg
+!docs/cut_off.jpg
+!docs/assistant.jpg
 
 # Internal notes and hackathon material (kept locally, not published)
 PLAN.md

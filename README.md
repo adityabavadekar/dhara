@@ -9,6 +9,8 @@ Dhara is an educational prototype, not for operational decisions.
 
 Demo video: [YouTube](https://youtu.be/dUJkiYxDHBI)
 
+![Dhara dashboard: the key figures for the 26 August 2026 Trishuli flood and the mapped flood and debris along the valley](docs/dashboard.jpg)
+
 ## Contents
 
 - [Overview](#overview)
@@ -67,6 +69,10 @@ Diagrams and stages: [`docs/architecture.md`](docs/architecture.md).
 - **One-page situation report** in English and Nepali, with a PDF built on the server when the
   analysis finishes.
 - **Provenance.** Every job records scene IDs, git commit, parameters and timings.
+
+| Who is cut off | Grounded assistant |
+|---|---|
+| ![A settlement with no road out after the flood: 5.9 km to hospital before, no route after](docs/cut_off.jpg) | ![The assistant listing the settlements that lost road access](docs/assistant.jpg) |
 
 ## Results
 
