@@ -148,6 +148,8 @@ be checked. `compare_bridges.py` produced these numbers.
 | 03 Bidur | 26 | 20 | 0 | 6 |
 | **05 Phosretar, held out** | 22 | 8 | 8 | 6 |
 
+![EMS damaged bridges by what Dhara said](figures/bridges.png)
+
 Phosretar is the weak spot: half of the bridges Dhara could assess there were called standing.
 These scores were measured after the settings were fixed, and nothing was changed because of them.
 
@@ -175,6 +177,8 @@ image only if it wrote that file itself, and processes the image again otherwise
 | Syapru Besi alone | 26 km² | 0.88 |
 | Whole Trishuli valley, before the fixes | 408 km² | 0.17 |
 | Whole Trishuli valley, after the fixes | 408 km² | **0.88** |
+
+![Score in the Syapru Besi area by run size](figures/big_area.png)
 
 After the fixes the big run finds all 5 damaged bridges EMS marked in Syapru Besi, and its
 severity is HIGH, the same as Syapru Besi alone. We also tried measuring the radar noise only on

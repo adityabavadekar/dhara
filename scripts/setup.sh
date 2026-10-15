@@ -71,8 +71,15 @@ step "Python environment (uv sync)"
 uv sync
 
 if [[ "$WEB" == 1 ]]; then
-  step "Dashboard dependencies (pnpm install)"
-  (cd web && pnpm install)
+  step "Dashboard (pnpm install, pnpm build)"
+  (cd web && pnpm install && pnpm build)
+  # The API prints report PDFs from the built dashboard (web/dist) with headless Chromium.
+  if command -v chromium >/dev/null || command -v chromium-browser >/dev/null \
+    || command -v google-chrome >/dev/null || command -v google-chrome-stable >/dev/null; then
+    echo "Chromium found: report PDFs can be printed."
+  else
+    echo "No Chromium or Chrome found: install one (e.g. apt install chromium) to print report PDFs."
+  fi
 fi
 
 step "Configuration (.env)"

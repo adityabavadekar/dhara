@@ -243,6 +243,55 @@ def s1_chain():
     _save(fig, "s1_chain.png")
 
 
+def bridges():
+    """Section 6: EMS damaged bridges, by what Dhara said about the matching OSM bridge."""
+    areas = ["01 Syapru Besi", "02 Timure", "03 Bidur", "05 Phosretar\n(held out)"]
+    flagged = [5, 0, 20, 8]
+    standing = [0, 0, 0, 8]
+    unmapped = [0, 1, 6, 6]
+    x = list(range(len(areas)))
+    fig, ax = plt.subplots(figsize=(8, 4.2))
+    ax.bar(x, flagged, 0.55, color=BLUE, label="Flagged lost or at risk")
+    ax.bar(x, standing, 0.55, bottom=flagged, color=AMBER, label="Called standing")
+    bot = [a + b for a, b in zip(flagged, standing, strict=True)]
+    ax.bar(x, unmapped, 0.55, bottom=bot, color=GREY, label="Not in OpenStreetMap")
+    for i, (f, total) in enumerate(
+        zip(flagged, [a + b for a, b in zip(bot, unmapped, strict=True)], strict=True)
+    ):
+        ax.annotate(
+            f"{f} of {total}",
+            (i, total),
+            xytext=(0, 3),
+            textcoords="offset points",
+            ha="center",
+            fontsize=9.5,
+            color=INK,
+        )
+    ax.set_xticks(x, areas)
+    ax.set_ylim(0, 30)
+    ax.set_ylabel("EMS damaged bridges")
+    ax.set_title("Bridges EMS marked as damaged")
+    ax.legend(loc="lower left", bbox_to_anchor=(0, 1.0), ncols=3, fontsize=10, borderaxespad=0.2)
+    _save(fig, "bridges.png")
+
+
+def big_area():
+    """Section 7: score in the Syapru Besi area, run alone vs inside the whole Trishuli valley."""
+    runs = [
+        "Syapru Besi alone\n26 km²",
+        "Trishuli valley\nbefore fixes, 408 km²",
+        "Trishuli valley\nafter fixes, 408 km²",
+    ]
+    f1 = [0.88, 0.17, 0.88]
+    fig, ax = plt.subplots(figsize=(7, 3.8))
+    bars = ax.bar(runs, f1, 0.55, color=[BLUE, GREY, GREEN])
+    _label(ax, bars)
+    ax.set_ylim(0, 1.05)
+    ax.set_ylabel("F1 vs EMS, Syapru Besi area")
+    ax.set_title("Same ground, same answer at any area size")
+    _save(fig, "big_area.png")
+
+
 if __name__ == "__main__":
     OUT.mkdir(exist_ok=True)
     for f in (
@@ -253,6 +302,8 @@ if __name__ == "__main__":
         model_vs_system,
         cutoff,
         s1_chain,
+        bridges,
+        big_area,
     ):
         f()
     print("wrote", sorted(p.name for p in OUT.glob("*.png")))

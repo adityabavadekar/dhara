@@ -96,6 +96,11 @@ never as an input. Method and caveats: [`validation/results.md`](validation/resu
 
 - **Cut-off status** matches EMS-based routing for 127/127 settlements at Syapru Besi and 114/115
   at Timure.
+- **Bridges:** of the bridges EMS marked as damaged, Dhara flags 5 of 5 at Syapru Besi, 20 of 26 at
+  Bidur and 8 of 22 at held-out Phosretar, where it calls 8 standing and 6 are missing from
+  OpenStreetMap.
+- **Any area size:** the Syapru Besi stretch scores 0.88 whether run alone (26 km²) or inside the
+  whole Trishuli valley (408 km²).
 - **Own Sentinel-1 chain** matches Sentinel Hub's processed products: σ⁰ VV per-pixel r 0.984,
   and the same system F1 (0.85 vs 0.85 at Syapru Besi).
 - **Flood model** (`unet_r34_imagenet_v2`, deployed): test flood F1 0.74 and unseen mountain events
@@ -104,7 +109,7 @@ never as an input. Method and caveats: [`validation/results.md`](validation/resu
 ## Installation
 
 Requirements: Python 3.12, [uv](https://docs.astral.sh/uv/), Node.js 20+ and
-[pnpm](https://pnpm.io/), GDAL, curl.
+[pnpm](https://pnpm.io/), GDAL, curl, and Chromium or Chrome for the PDF reports.
 
 ### Quick setup
 
@@ -114,9 +119,9 @@ cd dhara
 scripts/setup.sh
 ```
 
-[`scripts/setup.sh`](scripts/setup.sh) checks the prerequisites, installs the Python environment
-and the dashboard, creates `.env` from [`.env.example`](.env.example), and downloads and verifies the
-model weights. It is safe to run again. Options: `--no-web` (command line only), `--weights-only`.
+[`scripts/setup.sh`](scripts/setup.sh) checks the prerequisites, installs the Python environment,
+installs and builds the dashboard, creates `.env` from [`.env.example`](.env.example), and downloads
+and verifies the model weights. It is safe to run again. Options: `--no-web` (command line only), `--weights-only`.
 
 ### Manual setup
 
@@ -124,7 +129,7 @@ model weights. It is safe to run again. Options: `--no-web` (command line only),
 git clone https://github.com/adityabavadekar/dhara.git
 cd dhara
 uv sync
-(cd web && pnpm install)
+(cd web && pnpm install && pnpm build)
 cp .env.example .env
 ```
 
@@ -178,6 +183,10 @@ cd web && pnpm dev          # dashboard on http://localhost:5173
 ```
 
 Open a specific analysis with `http://localhost:5173/?job=<job_id>`.
+
+**PDF reports.** The API prints each report by opening its own report page in headless Chromium,
+so it needs the built dashboard (`web/dist`, from `pnpm build`) and Chromium or Chrome
+(`apt install chromium`). Run `pnpm build` again after changing the dashboard, so new PDFs match.
 
 **Command line**
 
