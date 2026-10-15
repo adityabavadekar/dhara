@@ -726,8 +726,11 @@ def _sitrep_data(job_id: str, maps: str) -> dict:
         m = {k: v for k, v in m.items() if k in wanted}
     layers = json.loads((d / "layers.json").read_text()) if (d / "layers.json").exists() else {}
     img = layers.get("imagery") or layers.get("imagery_radar")
+    job = store().get(job_id) or {}
     return {
         "job_id": job_id,
+        # The run's own name (given when it was started), for the report title.
+        "name": job.get("location_name"),
         "facts": payload["facts"],
         "values": payload["values"],
         "tables": payload["tables"],

@@ -269,7 +269,7 @@ export function Overview({ d }: { d: Data }) {
               >
                 <div className='flex items-center justify-between gap-2'>
                   <span className='truncate font-medium'>{s.name}</span>
-                  <StatusBadge status={s.status === 'detour' && roadLost(s) ? 'road_lost' : s.status} />
+                  <StatusBadge status={s.status !== 'cut_off' && s.status !== 'hospital_cut_off' && roadLost(s) ? 'road_lost' : s.status} />
                 </div>
                 <div className='mt-0.5 text-[0.6875rem] text-muted-foreground'>{s.buildings} buildings within {t('exposure_radius_m') ?? '—'} m</div>
               </Row>

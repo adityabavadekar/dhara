@@ -10,8 +10,10 @@ import { Dot, Empty, List, Note, Row, Section, StatusBadge, ViewIntro } from './
 type Data = ReturnType<typeof useJobData>
 const FILTERS = ['cut_off', 'hospital_cut_off', 'road_lost', 'detour', 'connected', 'no_baseline_route', 'not_on_network'] as const
 
-/** The status shown: a longer route that is now on foot only is reported as "road lost". */
-const shown = (s: Settlement) => (s.status === 'detour' && s.raw.vehicle_access === 'lost' ? 'road_lost' : s.status)
+/** The status shown: a settlement not cut off whose road to a hospital is gone (on foot only now)
+ *  is reported as "road lost". */
+const shown = (s: Settlement) =>
+  s.raw.vehicle_access === 'lost' && s.status !== 'cut_off' && s.status !== 'hospital_cut_off' ? 'road_lost' : s.status
 
 function access(s: Settlement): string {
   if (s.status === 'cut_off') return 'No way out, even on foot, to a town, health facility or beyond the area'

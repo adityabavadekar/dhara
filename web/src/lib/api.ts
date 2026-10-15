@@ -244,6 +244,8 @@ export const api = {
 
 export type SitrepData = {
   job_id: string
+  /** The run's own name, when it was given one. */
+  name?: string | null
   facts: Record<string, string>
   values: Record<string, unknown>
   tables: {

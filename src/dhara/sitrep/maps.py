@@ -264,6 +264,8 @@ def _settlements(ax, L: Layers, ranked_ids: list[str], size: float = 14) -> None
     for i, oid in enumerate(ranked_ids, start=1):
         if oid in where:
             g, st = where[oid]
+            # A ranked settlement that is not cut off has lost its road to a hospital.
+            st = "hospital_cut_off" if st in ("detour", "connected") else st
             _numbered(ax, g.x, g.y, i, STATUS_COLOR.get(st, "#b91c1c"))
 
 

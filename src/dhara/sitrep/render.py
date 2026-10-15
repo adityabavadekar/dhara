@@ -590,7 +590,7 @@ def render(
 
 
 # Bump when the report map drawing changes, so cached maps are redrawn.
-MAPS_VERSION = 6
+MAPS_VERSION = 7
 
 
 def maps_key(job_dir: Path, ids: dict) -> str:

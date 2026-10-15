@@ -310,9 +310,19 @@ def build(job_dir: Path) -> Facts:
             )
     f.tables["hospitals"] = hosp_rows
 
+    # The report's access table: no way out at all, then no hospital access, then communities that
+    # lost their road to a hospital but can still walk out (status "road lost").
+    tbl = cut
+    if sdf is not None and len(sdf) and "vehicle_access" in sdf:
+        road = sdf[
+            (sdf["vehicle_access"] == "lost") & ~sdf["status"].isin(["cut_off", "hospital_cut_off"])
+        ].copy()
+        road["status"] = "road_lost"
+        road = road.sort_values("buildings_500m", ascending=False)
+        tbl = pd.concat([cut, road]) if len(cut) else road
     cut_rows = []
-    f.ids["cut_off"] = [str(o) for o in cut.head(40)["osm_id"]] if len(cut) else []
-    for _, row in cut.head(40).iterrows():
+    f.ids["cut_off"] = [str(o) for o in tbl.head(40)["osm_id"]] if len(tbl) else []
+    for _, row in tbl.head(40).iterrows():
         lat_s, lon_s, coords_s, url_s = _coords(row)
         cut_rows.append(
             {
@@ -328,6 +338,9 @@ def build(job_dir: Path) -> Facts:
                 if pd.notna(row["km_to_hospital_pre"])
                 else "n/a",
                 "hospital": str(row.get("hospital_name") or "unnamed"),
+                "walk_h": fmt_num(row["hours_to_hospital_post"], 1)
+                if pd.notna(row.get("hours_to_hospital_post"))
+                else "n/a",
                 "delay": f"+{fmt_num(row['delay_hours_target'], 1)}h"
                 if pd.notna(row.get("delay_hours_target"))
                 and float(row.get("delay_hours_target") or 0) > 0

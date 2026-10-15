@@ -363,7 +363,8 @@ function Report({ data, lang }: { data: SitrepData; lang: Lang }) {
   const en = lang === 'en'
   const dash = '—'
   const loc = data.facts.target_location ?? null
-  const place = loc ? loc.replace(/\s*\([^)]*\)\s*$/, '') : null
+  // The run's own name (e.g. "Trishuli valley") when it was given one, else the largest settlement.
+  const place = data.name || (loc ? loc.replace(/\s*\([^)]*\)\s*$/, '') : null)
   const day = (iso: string | null | undefined) => fmtDay(iso, lang)
   const created = day(data.facts.generated_utc)
   const osm = day(data.facts.osm_snapshot)
@@ -381,7 +382,14 @@ function Report({ data, lang }: { data: SitrepData; lang: Lang }) {
   const cut = n('settlements_cut_off')
   const hasCutoff = (cut ?? 0) > 0
   const repair = (tables.repairs ?? [])[0]
-  const statusOf = (st: string) => (st.toLowerCase().includes('cut off') && !st.toLowerCase().includes('hospital') ? 'cut' : 'hosp')
+  const statusOf = (st: string) => {
+    const s = st.toLowerCase()
+    if (s.includes('road lost')) return 'road'
+    return s.includes('cut off') && !s.includes('hospital') ? 'cut' : 'hosp'
+  }
+  // Communities with a road to a hospital before the event that have none after (on foot only).
+  const roadLost = n('settlements_vehicle_lost')
+  const hasRoad = roadLost != null && (n('settlements_vehicle_before') ?? 0) > 0
   const bridgeName = (r: Row) => {
     const nm = r.name ?? ''
     const generic = ['primary', 'secondary', 'tertiary', 'trunk', 'unclassified', 'residential', 'track', 'path', 'footway', 'service', '']
@@ -404,7 +412,16 @@ function Report({ data, lang }: { data: SitrepData; lang: Lang }) {
         ? `${t('area_flood_km2') ?? dash} km² new water · ${t('area_not_observable_km2') ?? dash} km² not observable`
         : `${t('area_flood_km2') ?? dash} वर्ग कि.मि. नयाँ पानी`,
     },
-    {
+    hasRoad && !hasCutoff
+      ? {
+          value: t('settlements_vehicle_lost'),
+          label: en ? 'Lost road to a hospital' : 'अस्पतालसम्मको सडक टुटेको',
+          sub: en
+            ? `of ${t('settlements_vehicle_before') ?? dash} communities that had one · ${t('settlements_cut_off') ?? dash} with no way out`
+            : `${t('settlements_vehicle_before') ?? dash} मध्ये`,
+          tone: 'bad' as const,
+        }
+      : {
       value: hasCutoff ? t('settlements_cut_off') : t('settlements_hospital_cut_off'),
       label: hasCutoff ? L.cutOff : L.noHospital,
       sub: hasCutoff
@@ -434,7 +451,7 @@ function Report({ data, lang }: { data: SitrepData; lang: Lang }) {
     {
       value: t('settlements_detour'),
       label: L.detours,
-      sub: t('max_detour_hours') ? (en ? `longest extra time ${t('max_detour_hours')} h` : `बढीमा ${t('max_detour_hours')} घण्टा थप`) : null,
+      sub: (n('max_detour_hours') ?? 0) > 0 ? (en ? `longest extra time ${t('max_detour_hours')} h` : `बढीमा ${t('max_detour_hours')} घण्टा थप`) : null,
     },
   ]
 
@@ -599,14 +616,25 @@ function Report({ data, lang }: { data: SitrepData; lang: Lang }) {
             <strong className='sr-q'>{L.qWho}</strong>
             {en ? (
               <>
-                <b>{t('settlements_cut_off') ?? dash}</b> {t('settlements_cut_off') === '1' ? 'community is' : 'communities are'} likely cut off by road and{' '}
+                {hasRoad && (
+                  <>
+                    <b>{t('settlements_vehicle_lost')}</b> {t('settlements_vehicle_lost') === '1' ? 'community' : 'communities'} likely lost their road to a hospital and can now
+                    only walk out.{' '}
+                  </>
+                )}
+                <b>{t('settlements_cut_off') ?? dash}</b> {t('settlements_cut_off') === '1' ? 'community is' : 'communities are'} likely cut off with no way out, even on foot, and{' '}
                 <b>{t('settlements_hospital_cut_off') ?? dash}</b> more likely cannot reach a hospital
                 {t('hospitals_total') ? ` (${t('hospitals_isolated') ?? dash} of ${t('hospitals_total')} health facilities likely isolated)` : ''}.{' '}
                 <b>{t('settlements_detour') ?? dash}</b> {t('settlements_detour') === '1' ? 'community' : 'communities'} likely need a longer route
-                {t('max_detour_hours') ? `, up to ${t('max_detour_hours')} h extra` : ''}.
+                {(n('max_detour_hours') ?? 0) > 0 ? `, up to ${t('max_detour_hours')} h extra` : ''}.
               </>
             ) : (
               <>
+                {hasRoad && (
+                  <>
+                    <b>{t('settlements_vehicle_lost')}</b> बस्तीको अस्पतालसम्मको सडक टुटेको हुनसक्छ।{' '}
+                  </>
+                )}
                 <b>{t('settlements_cut_off') ?? dash}</b> बस्तीको सबै सडक बन्द भएको हुनसक्छ र थप <b>{t('settlements_hospital_cut_off') ?? dash}</b> बस्तीबाट अस्पताल पुग्न नसकिने
                 अनुमान छ।
               </>
@@ -699,7 +727,7 @@ function Report({ data, lang }: { data: SitrepData; lang: Lang }) {
           </section>
           <DataTable
             ne={!en}
-            caption={`${L.secCutoff} · ${en ? `top ${Math.min(5, (tables.cut_off ?? []).length)} of ${(tables.cut_off ?? []).length}` : ''}`}
+            caption={`${hasCutoff || !hasRoad ? L.secCutoff : en ? '5. Communities without a road to a hospital' : '५. अस्पतालसम्म सडक नभएका बस्ती'} · ${en ? `top ${Math.min(5, (tables.cut_off ?? []).length)} of ${(tables.cut_off ?? []).length}` : ''}`}
             cols={[
               {
                 key: 'name',
@@ -718,14 +746,20 @@ function Report({ data, lang }: { data: SitrepData; lang: Lang }) {
               {
                 key: 'status',
                 label: en ? 'Access status' : 'पहुँच',
-                render: (r) => (statusOf(r.status) === 'cut' ? <Status tone='bad'>{U.status.cut}</Status> : <Status tone='warn'>{U.status.hosp}</Status>),
+                render: (r) =>
+                  statusOf(r.status) === 'cut' ? (
+                    <Status tone='bad'>{U.status.cut}</Status>
+                  ) : statusOf(r.status) === 'road' ? (
+                    <Status tone='warn'>{en ? 'On foot only' : 'पैदल मात्र'}</Status>
+                  ) : (
+                    <Status tone='warn'>{U.status.hosp}</Status>
+                  ),
               },
               { key: 'buildings', label: en ? 'Bldgs' : 'भवन', num: true },
-              {
-                key: 'km_pre',
-                label: en ? 'Pre dist (km)' : 'पहिलेको दूरी',
-                num: true,
-              },
+              // Communities that can only walk out: how long that walk to a hospital is now.
+              hasRoad && !hasCutoff
+                ? { key: 'walk_h', label: en ? 'Walk now (h)' : 'अब पैदल (घण्टा)', num: true }
+                : { key: 'km_pre', label: en ? 'Pre dist (km)' : 'पहिलेको दूरी', num: true },
               {
                 key: 'gmaps_url',
                 label: en ? 'Maps' : 'नक्सा',
@@ -773,7 +807,7 @@ function Report({ data, lang }: { data: SitrepData; lang: Lang }) {
           </ul>
           <DataTable
             ne={!en}
-            caption={`${L.secBridges} · ${t('bridges_lost') ?? dash} ${en ? 'lost' : 'बगेका'} · ${t('bridges_at_risk') ?? dash} ${en ? 'at risk' : 'जोखिममा'}`}
+            caption={`${L.secBridges} · ${t('bridges_lost') ?? dash} ${en ? 'lost' : 'बगेका'} · ${t('bridges_at_risk') ?? dash} ${en ? 'at risk' : 'जोखिममा'}${(tables.bridges ?? []).length > 3 && en ? ` · top 3 of ${(tables.bridges ?? []).length}` : ''}`}
             cols={[
               {
                 key: 'name',
