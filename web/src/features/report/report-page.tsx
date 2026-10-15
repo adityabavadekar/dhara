@@ -616,8 +616,9 @@ function Report({ data, lang }: { data: SitrepData; lang: Lang }) {
             {repair ? (
               en ? (
                 <>
-                  Reopening <b>{repair.what}</b> ({repair.highway}) first would likely restore road access to <b>{repair.settlements}</b> communities and <b>{repair.buildings}</b>{' '}
-                  buildings, more than any other single section.
+                  Reopening <b>{repair.what}</b> ({repair.highway}) first would likely restore road access to <b>{repair.settlements}</b>{' '}
+                  {Number(repair.settlements) === 1 ? 'community' : 'communities'} and <b>{repair.buildings}</b>{' '}
+                  {Number(repair.buildings) === 1 ? 'building' : 'buildings'}, more than any other single section.
                 </>
               ) : (
                 <>

@@ -74,6 +74,11 @@ Diagrams and stages: [`docs/architecture.md`](docs/architecture.md).
 |---|---|
 | ![A settlement with no road out after the flood: 5.9 km to hospital before, no route after](docs/cut_off.jpg) | ![The assistant listing the settlements that lost road access](docs/assistant.jpg) |
 
+**Sample one-page situation report** for the 26 August 2026 event (Phosretar area), generated
+by Dhara: [English PDF](docs/sample_report_en.pdf) · [Nepali PDF](docs/sample_report_ne.pdf)
+
+<a href="docs/sample_report_en.pdf"><img src="docs/sample_report.jpg" width="480" alt="One-page situation report: severity, key figures, situation, maps, cut-off communities and repairs"></a>
+
 ## Results
 
 Scored against Copernicus EMS rapid mapping of the 26 August 2026 Trishuli event

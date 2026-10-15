@@ -25,6 +25,9 @@ docs/*
 !docs/dashboard.jpg
 !docs/cut_off.jpg
 !docs/assistant.jpg
+!docs/sample_report.jpg
+!docs/sample_report_en.pdf
+!docs/sample_report_ne.pdf
 
 # Internal notes and hackathon material (kept locally, not published)
 PLAN.md
